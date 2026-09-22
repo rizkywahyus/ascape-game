@@ -52,6 +52,8 @@ export interface FeedLine {
 }
 
 type EventListener = (event: EventPayload, game: ClientGame) => void
+/** Fired the moment the player presses an action locally, before the server confirms it (instant feedback). */
+type LocalActionListener = (action: Action, game: ClientGame) => void
 
 /**
  * Networked game state on the client. Matchmakes, sends one input per server tick, predicts our own character,
@@ -78,6 +80,7 @@ export class ClientGame {
   private readonly keyboard: KeyboardInput
   private readonly requestedRoom: string | null
   private readonly eventListeners: EventListener[] = []
+  private readonly localActionListeners: LocalActionListener[] = []
   private readonly pendingActions = new Set<Action>()
   private nextSeq = 1
   private tickAccumulatorMs = 0
@@ -106,6 +109,18 @@ export class ClientGame {
     this.eventListeners.push(listener)
   }
 
+  onLocalAction(listener: LocalActionListener): void {
+    this.localActionListeners.push(listener)
+  }
+
+  /** True if an attack pressed now would swing right away (by our latest knowledge of the cooldown). */
+  attackReady(nowMs: number): boolean {
+    const you = this.latest?.you
+    if (!you || you.role !== 'monster') return false
+    const sinceSnapshot = nowMs - (this.buffer.lastReceivedAtMs ?? nowMs)
+    return you.cooldowns.attackMs - sinceSnapshot <= 0
+  }
+
   /** Our role, or null when spectating / not in a match. */
   role(): Role | null {
     return this.match?.role ?? null
@@ -117,7 +132,9 @@ export class ClientGame {
     if (!role) return
     for (const code of codes) {
       const action = ACTION_KEYS[role][code]
-      if (action) this.pendingActions.add(action)
+      if (!action) continue
+      this.pendingActions.add(action)
+      this.localActionListeners.forEach((listener) => listener(action, this))
     }
   }
 
@@ -179,6 +196,7 @@ export class ClientGame {
       sprint,
       interact: this.keyboard.interact(),
       actions,
+      viewTick: Math.max(0, Math.floor(this.buffer.renderTick(nowMs) ?? 0)),
     })
     if (!sent || !this.predicted) return
     const moving = direction.dx !== 0 || direction.dy !== 0

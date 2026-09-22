@@ -63,14 +63,6 @@ function storeWorldFont(size: number): void {
   }
 }
 
-function enterFullscreen(): void {
-  if (document.fullscreenElement || !document.documentElement.requestFullscreen) return
-  document.documentElement.requestFullscreen().catch((error: unknown) => {
-    // Not fatal: some browsers (iOS Safari) or embedded frames refuse; the canvas still fills the window.
-    console.info('Fullscreen unavailable', error)
-  })
-}
-
 /** `?room=<id>` joins a specific (private) room instead of matchmaking. */
 function roomFromUrl(): string | null {
   return new URLSearchParams(location.search).get('room')
@@ -112,9 +104,7 @@ async function start(): Promise<void> {
   }
 
   const startGame = () => {
-    // Both run inside the "Find match" click: browsers only allow audio and fullscreen from a user gesture.
-    audio.unlock()
-    enterFullscreen()
+    audio.unlock() // runs inside the "Find match" click, which browsers require for audio
     ui.hidden = true
     const socket = new GameSocket(() => gameSocketUrl(auth.accessToken()))
     const game = new ClientGame(socket, keyboard, rolePreference, roomFromUrl())

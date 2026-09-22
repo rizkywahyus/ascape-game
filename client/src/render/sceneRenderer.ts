@@ -2,7 +2,7 @@ import type { ClientGame } from '../game/clientGame'
 import { computeLighting, type LightSource } from '../game/lighting'
 import { GameRules } from '../game/rules'
 import type { TileMap } from '../game/tileMap'
-import type { EntityView, SnapshotPayload } from '../net/protocol'
+import { Actions, type EntityView, type SnapshotPayload } from '../net/protocol'
 import type { GameSocket } from '../net/socket'
 import { Animator } from './animator'
 import type { AsciiGrid } from './asciiGrid'
@@ -94,6 +94,12 @@ export class SceneRenderer {
   attach(game: ClientGame): void {
     game.onGameEvent((event) => {
       if (event.kind === 'hit') this.animator.markAttack(Number(event.data.attackerId), performance.now())
+    })
+    // Swing immediately on the key press instead of a round trip later.
+    game.onLocalAction((action, current) => {
+      const now = performance.now()
+      const you = current.latest?.you
+      if (action === Actions.attack && you && current.attackReady(now)) this.animator.markAttack(you.id, now)
     })
   }
 

@@ -3,8 +3,13 @@ package dev.ascape.game.match;
 import java.util.List;
 import java.util.Set;
 
-/** One tick of intent. Humans and bots produce the same type, so the simulation cannot tell them apart. */
-public record PlayerInput(long seq, int dx, int dy, boolean sprint, boolean interact, List<String> actions) {
+/**
+ * One tick of intent. Humans and bots produce the same type, so the simulation cannot tell them apart.
+ * {@code viewTick} is the match tick at which the sender saw the other characters (0: now); see lag compensation
+ * in {@link Match}.
+ */
+public record PlayerInput(long seq, int dx, int dy, boolean sprint, boolean interact, List<String> actions,
+		long viewTick) {
 
 	public static final String ATTACK = "attack";
 	public static final String FLASHLIGHT = "flashlight";
@@ -22,6 +27,14 @@ public record PlayerInput(long seq, int dx, int dy, boolean sprint, boolean inte
 		dy = Integer.signum(dy);
 		actions = actions == null ? List.of()
 				: actions.stream().filter(KNOWN_ACTIONS::contains).distinct().limit(MAX_ACTIONS).toList();
+	}
+
+	public PlayerInput(long seq, int dx, int dy, boolean sprint, boolean interact, List<String> actions) {
+		this(seq, dx, dy, sprint, interact, actions, 0);
+	}
+
+	public PlayerInput withViewTick(long matchViewTick) {
+		return new PlayerInput(seq, dx, dy, sprint, interact, actions, matchViewTick);
 	}
 
 	public boolean moving() {

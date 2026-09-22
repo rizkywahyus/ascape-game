@@ -185,6 +185,62 @@ class MatchTest {
 	}
 
 	@Test
+	void attackHitsWhereTheMonsterSawTheSurvivor() {
+		place(survivor, 5, 7);
+		place(monster, 5, 6);
+		tick(Map.of()); // tick 1: survivor recorded next to the monster
+		long sawAt = match.tick();
+		place(survivor, 7, 7); // it has moved on by the time the swing arrives
+		tick(Map.of());
+
+		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK).withViewTick(sawAt)));
+
+		assertThat(survivor.health()).as("lag compensation").isEqualTo(Health.INJURED);
+	}
+
+	@Test
+	void attackWithoutViewTickUsesCurrentPositions() {
+		place(survivor, 5, 7);
+		place(monster, 5, 6);
+		tick(Map.of());
+		place(survivor, 7, 7);
+		tick(Map.of());
+
+		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK)));
+
+		assertThat(survivor.health()).isEqualTo(Health.HEALTHY);
+	}
+
+	@Test
+	void lagCompensationIsCapped() {
+		place(survivor, 5, 7);
+		place(monster, 5, 6);
+		tick(Map.of());
+		long sawAt = match.tick();
+		place(survivor, 8, 7);
+		tickFor(1, Map.of()); // far more than MAX_REWIND_TICKS ago
+
+		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK).withViewTick(sawAt)));
+
+		assertThat(survivor.health()).isEqualTo(Health.HEALTHY);
+	}
+
+	@Test
+	void earlyAttackPressIsBufferedUntilTheCooldownEnds() {
+		place(survivor, 9, 9);
+		place(monster, 5, 6);
+		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK))); // miss, cooldown starts
+		tickFor(RULES.monster().attackCooldownSeconds() - 0.2, Map.of());
+		place(survivor, 5, 7);
+
+		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK))); // 0.2 s early
+		assertThat(survivor.health()).isEqualTo(Health.HEALTHY);
+		tickFor(0.25, Map.of());
+
+		assertThat(survivor.health()).as("the buffered swing lands").isEqualTo(Health.INJURED);
+	}
+
+	@Test
 	void missStillCostsCooldownAndSlowsTheMonster() {
 		place(survivor, 9, 9);
 		place(monster, 5, 6);

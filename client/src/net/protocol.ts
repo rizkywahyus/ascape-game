@@ -29,6 +29,8 @@ export interface InputPayload {
   sprint: boolean
   interact: boolean
   actions: Action[]
+  /** Snapshot tick shown for other characters when this input was made (lag compensation). */
+  viewTick?: number
 }
 
 export interface ClientMessages {

@@ -45,6 +45,12 @@ public final class Match {
 	public record Trail(GridPos position, int createdTick) {
 	}
 
+	/** Positions kept per actor for lag compensation; must exceed MAX_REWIND_TICKS. */
+	static final int POSITION_HISTORY_TICKS = 8;
+	/** Furthest back an attack may be checked (300 ms at 20 Hz), so a lagging or lying client gains little. */
+	static final int MAX_REWIND_TICKS = 6;
+	private static final double ATTACK_BUFFER_SECONDS = 0.3;
+
 	private static final double REPAIR_SKILL_CHECK_PENALTY = 0.08;
 	private static final double REPAIR_SKILL_CHECK_BONUS = 0.02;
 	private static final double SKILL_CHECKS_PER_SECOND = 1.0 / 8;
@@ -268,6 +274,8 @@ public final class Match {
 		}
 		applyChannelling(inputs);
 		updateTimers();
+		fireBufferedAttacks();
+		recordPositions();
 		expireNoiseAndTrails();
 		updateObjectives();
 	}
@@ -275,7 +283,7 @@ public final class Match {
 	private void applyActions(Actor actor, PlayerInput input) {
 		if (actor.role == Role.MONSTER) {
 			if (input.has(PlayerInput.ATTACK)) {
-				attack(actor);
+				requestAttack(actor, input);
 			}
 			if (input.has(PlayerInput.LUNGE) && actor.lungeCooldownTicks == 0 && actor.attackSlowTicks == 0) {
 				actor.lungeTicks = rules.ticks(rules.monster().lungeSeconds());
@@ -305,20 +313,49 @@ public final class Match {
 		}
 	}
 
-	private void attack(Actor monster) {
-		if (monster.attackCooldownTicks > 0) {
-			return;
+	/** Attacks now, or buffers the press if the cooldown is about to end so an early press is not lost. */
+	private void requestAttack(Actor monster, PlayerInput input) {
+		if (monster.attackCooldownTicks == 0) {
+			attack(monster, input.viewTick());
 		}
+		else if (monster.attackCooldownTicks <= rules.ticks(ATTACK_BUFFER_SECONDS)) {
+			monster.attackBufferedUntilTick = tick + monster.attackCooldownTicks;
+			monster.bufferedAttackViewTick = input.viewTick();
+		}
+	}
+
+	/**
+	 * Swings at the nearest survivor in reach. Lag compensation: the attacker saw survivors {@code tick - viewTick}
+	 * ticks in the past (interpolation + latency), so a survivor counts as in reach if it is next to the monster now
+	 * or was at the tick the attacker was looking at (capped at MAX_REWIND_TICKS).
+	 */
+	private void attack(Actor monster, long viewTick) {
 		GameRules.MonsterRules rulesForMonster = rules.monster();
 		monster.attackCooldownTicks = rules.ticks(rulesForMonster.attackCooldownSeconds());
 		monster.attackSlowTicks = rules.ticks(rulesForMonster.attackSlowSeconds());
+		monster.attackBufferedUntilTick = -1;
 		monster.lungeTicks = 0;
+		int rewind = viewTick <= 0 ? 0 : (int) Math.clamp(tick - viewTick, 0, MAX_REWIND_TICKS);
 		actors.stream()
 				.filter(a -> a.role == Role.SURVIVOR && a.health.isActive() && !a.hidden())
-				.filter(a -> a.position().chebyshevDistance(monster.position()) <= rulesForMonster.attackRange())
+				.filter(a -> inReach(monster, a.position(), rulesForMonster)
+						|| inReach(monster, positionAgo(a, rewind), rulesForMonster))
 				.min(Comparator.comparingInt((Actor a) -> LineOfSight.distanceSquared(a.position(), monster.position()))
 						.thenComparingInt(a -> a.id))
 				.ifPresent(victim -> hit(monster, victim));
+	}
+
+	private static boolean inReach(Actor monster, GridPos target, GameRules.MonsterRules rules) {
+		return target.chebyshevDistance(monster.position()) <= rules.attackRange();
+	}
+
+	/** Where the actor stood {@code ticksAgo} ticks ago (its current cell if history does not reach back that far). */
+	private GridPos positionAgo(Actor actor, int ticksAgo) {
+		if (ticksAgo <= 0) {
+			return actor.position();
+		}
+		GridPos past = actor.positionHistory[Math.floorMod(tick - ticksAgo, POSITION_HISTORY_TICKS)];
+		return past != null ? past : actor.position();
 	}
 
 	private void hit(Actor monster, Actor victim) {
@@ -668,6 +705,23 @@ public final class Match {
 					events.add(new MatchEvent.Caught(actor.id, null));
 				}
 			}
+		}
+	}
+
+	private void fireBufferedAttacks() {
+		for (Actor actor : actors) {
+			if (actor.attackBufferedUntilTick >= 0 && actor.attackCooldownTicks == 0) {
+				if (tick <= actor.attackBufferedUntilTick + 1) {
+					attack(actor, actor.bufferedAttackViewTick);
+				}
+				actor.attackBufferedUntilTick = -1;
+			}
+		}
+	}
+
+	private void recordPositions() {
+		for (Actor actor : actors) {
+			actor.positionHistory[Math.floorMod(tick, POSITION_HISTORY_TICKS)] = actor.position();
 		}
 	}
 

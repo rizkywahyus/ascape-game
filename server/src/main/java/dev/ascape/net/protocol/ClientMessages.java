@@ -22,11 +22,13 @@ public final class ClientMessages {
 	public record Leave() implements ClientMessage {
 	}
 
-	public record Input(long seq, int dx, int dy, boolean sprint, boolean interact, List<String> actions)
+	/** {@code viewTick}: snapshot tick the client showed other characters at (optional), for lag compensation. */
+	public record Input(long seq, int dx, int dy, boolean sprint, boolean interact, List<String> actions, Long viewTick)
 			implements ClientMessage {
 
 		public Input {
 			actions = actions == null ? List.of() : List.copyOf(actions);
+			viewTick = viewTick == null || viewTick < 0 ? 0L : viewTick;
 		}
 	}
 

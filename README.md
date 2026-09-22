@@ -63,6 +63,10 @@ Browser (Vite + TS)                     Spring Boot 4 (Java 21)                 
 3. Each snapshot carries `ackSeq` and the authoritative state; the client resets to it and replays the inputs the
    server has not seen yet. Mismatches are counted in the F3 overlay.
 4. Other players are rendered 100 ms in the past, interpolated between snapshots on the server's timeline.
+5. **Lag compensation**: each input carries the tick the client was showing (`viewTick`), and the monster's attack
+   is checked against where survivors were at that tick as well as now (rewind capped at 300 ms). Early presses
+   during the cooldown are buffered. With 100 ms simulated latency, a scripted monster's hit rate on swings that
+   looked adjacent went from 45% (5/11) to 100% (8/8).
 
 Try it with artificial lag: `SIMULATED_LATENCY_MS=100` adds 100 ms each way on the server.
 
@@ -132,6 +136,7 @@ Without `VITE_SUPABASE_*` the client skips sign-in and plays as a guest, which n
 | `ALLOWED_ORIGINS` | `http://localhost:5173` | Browser origins for the WebSocket and CORS |
 | `AUTH_ALLOW_UNAUTHENTICATED` | `false` | Accept tokenless guests (dev, load tests) |
 | `BOT_DIFFICULTY` | `normal` | `easy`, `normal`, `hard` |
+| `ASCAPE_MAPID` | `manor` | Map from `shared/maps/<id>.map.txt`; `arena` is a small open map for quick tests |
 | `SIMULATED_LATENCY_MS` | `0` | Extra one-way latency, for netcode demos |
 | `ASCAPE_DEBUG_LOBBYCOUNTDOWNSECONDS` | rules.json | Shorter lobby countdown for testing |
 | `BOT_DEBUG_VIEW` | `false` | Sends bot states and paths to clients (F4). Reveals positions — dev only |

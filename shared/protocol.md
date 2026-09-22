@@ -43,7 +43,7 @@ Related shared files:
 | `queue` | `{ rolePref }`                                                 | matchmaking; `rolePref`: `monster`, `survivor`, `any` |
 | `join`  | `{ roomId, rolePref }`                                         | join (or create) a room by id, `[a-z0-9-]{1,32}` |
 | `leave` | `{}`                                                           | leave the current room |
-| `input` | `{ seq, dx, dy, sprint, interact, actions: [] }`               | one message per client tick, see below |
+| `input` | `{ seq, dx, dy, sprint, interact, actions: [], viewTick }`     | one message per client tick, see below |
 | `chat`  | `{ text }`                                                     | 1–200 chars |
 | `ping`  | `{ ts }`                                                       | client clock, echoed back in `pong` |
 
@@ -55,7 +55,11 @@ Related shared files:
   one, which counts as a hit on whoever hides inside) and held, while not moving, to channel: survivors repair,
   revive a downed teammate or heal an injured one; the monster carries off a downed survivor.
 - `actions`: one-shot presses this tick: `attack`, `flashlight`, `throw`, `ability:lunge`, `ability:sonar`,
-  `ability:trap`, `skillcheck`. Unknown actions are ignored.
+  `ability:trap`, `skillcheck`. Unknown actions are ignored. An `attack` pressed while on cooldown is buffered and
+  fires automatically if the cooldown ends within 0.3 s.
+- `viewTick` (optional): the snapshot tick the client was showing *other* characters at when the input was made
+  (they are rendered in the past, interpolated). The server uses it for **lag compensation**: an attack is checked
+  against where survivors were at that tick as well as where they are now. The rewind is capped at 6 ticks (300 ms).
 - The server consumes **at most one input per character per tick**, in `seq` order. A character with no pending
   input is not simulated that tick, so the server state after `ackSeq` is exactly what the client predicts after
   applying inputs up to `ackSeq`. A backlog of more than 6 inputs is trimmed (oldest dropped); reconciliation

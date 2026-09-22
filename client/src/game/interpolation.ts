@@ -47,6 +47,12 @@ export class SnapshotBuffer {
     if (this.snapshots.length > MAX_BUFFERED) this.snapshots.shift()
   }
 
+  /** The server tick being shown for remote entities right now (fractional), or null before any snapshot. */
+  renderTick(nowMs: number): number | null {
+    if (this.clockOffsetMs === null) return null
+    return (nowMs + this.clockOffsetMs - this.delayMs) / this.tickMs
+  }
+
   sample(nowMs: number): InterpolatedEntity[] {
     if (this.snapshots.length === 0 || this.clockOffsetMs === null) return []
     const renderTime = nowMs + this.clockOffsetMs - this.delayMs

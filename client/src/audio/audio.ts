@@ -1,5 +1,5 @@
 import type { ClientGame } from '../game/clientGame'
-import type { EventPayload } from '../net/protocol'
+import { Actions, type EventPayload } from '../net/protocol'
 
 const MASTER_VOLUME = 0.35
 const HEARTBEAT_MIN_BPM = 60
@@ -48,6 +48,9 @@ export class AudioEngine {
 
   attach(game: ClientGame): void {
     game.onGameEvent((event, current) => this.onEvent(event, current))
+    game.onLocalAction((action, current) => {
+      if (action === Actions.attack && current.attackReady(performance.now())) this.noise(0.12, 2200, 0.35) // whoosh
+    })
   }
 
   /** Called every frame: heartbeat pacing and the skill-check cue. */

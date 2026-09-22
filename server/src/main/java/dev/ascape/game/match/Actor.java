@@ -94,6 +94,11 @@ public final class Actor {
 	int sonarTicks;
 	int sonarCooldownTicks;
 	int trapCooldownTicks;
+	/** Attack pressed during cooldown; it fires when the cooldown ends, if before this tick. */
+	int attackBufferedUntilTick = -1;
+	long bufferedAttackViewTick;
+	/** Recent positions by tick, for lag-compensated hit checks (see Match.attack). */
+	final GridPos[] positionHistory = new GridPos[Match.POSITION_HISTORY_TICKS];
 	int skillCheckStartTick = -1;
 	int skillCheckDeadlineTick = -1;
 	int skillCheckGeneratorId;

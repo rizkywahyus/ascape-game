@@ -38,6 +38,13 @@ describe('SnapshotBuffer', () => {
     expect(sampled.renderX).toBe(10)
   })
 
+  it('reports the server tick being rendered', () => {
+    const buffer = new SnapshotBuffer(TICK_RATE, 2 * TICK_MS)
+    buffer.push(10, [entity(0, 0)], 1000)
+    // Offset = 500 − 1000 = −500 ms; at local 1000 the render time is 1000 − 500 − 100 = 400 ms = tick 8.
+    expect(buffer.renderTick(1000)).toBeCloseTo(8, 5)
+  })
+
   it('holds the latest state when render time passes the newest snapshot', () => {
     const buffer = new SnapshotBuffer(TICK_RATE, 0)
     buffer.push(1, [entity(3, 4)], 0)

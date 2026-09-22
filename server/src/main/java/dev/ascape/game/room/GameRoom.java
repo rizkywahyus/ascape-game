@@ -314,7 +314,7 @@ public final class GameRoom {
 			return;
 		}
 		PlayerInput playerInput = new PlayerInput(input.seq(), input.dx(), input.dy(), input.sprint(),
-				input.interact(), input.actions());
+				input.interact(), input.actions(), input.viewTick());
 		boolean stale = playerInput.seq() <= control.lastAppliedSeq
 				|| (!control.pending.isEmpty() && playerInput.seq() <= control.pending.peekLast().seq());
 		if (stale) {
@@ -427,16 +427,20 @@ public final class GameRoom {
 	}
 
 	private void tickMatch() {
+		// Clients speak room ticks (snapshot.tick); the match counts its own. The offset is constant during a match.
+		long roomToMatchTicks = tick - match.tick();
 		Map<Integer, PlayerInput> inputs = new HashMap<>();
 		controllers.forEach((actorId, controller) -> {
 			Actor actor = match.actor(actorId).orElseThrow();
 			PlayerInput input = switch (controller) {
 				case HumanControl human -> {
 					PlayerInput next = human.pending.pollFirst();
-					if (next != null) {
-						human.lastAppliedSeq = next.seq();
+					if (next == null) {
+						yield null;
 					}
-					yield next;
+					human.lastAppliedSeq = next.seq();
+					// A snapshot labelled room tick R shows match tick R - offset + 1 (the match ticked before sending).
+					yield next.viewTick() > 0 ? next.withViewTick(next.viewTick() - roomToMatchTicks + 1) : next;
 				}
 				case BotControl bot -> actor.health().isInPlay() ? bot.bot().nextInput(match, actor) : null;
 			};
