@@ -53,6 +53,16 @@ export function drawSurvivor(context: CanvasRenderingContext2D, pose: Pose, phas
   drawLeg(context, 0, hipY, swing, crouch, TROUSERS)
 
   const neck = { x: lean, y: hipY + 12 }
+  const shoulder = { x: neck.x, y: neck.y - 1 }
+  // Upper-arm angle (0 = hanging down, positive = in front) and elbow flexion (always ≥ 0: a real elbow only
+  // folds the forearm forward/up). Repairing: elbows low, forearms level, hands working alternately.
+  const backArm = crouch ? 0.75 + Math.sin(phase * 2) * 0.12 : swing * 0.9
+  const frontArm = crouch ? 0.9 + Math.cos(phase * 2) * 0.15 : -swing * 0.9
+  const flex = crouch ? 0.75 : running ? 1.3 : moving ? 0.35 : 0.15
+
+  // The far arm goes behind the torso so the body partly hides it.
+  drawArm(context, shoulder.x - 0.5, shoulder.y, backArm, flex, shade(style.body, 0.5))
+
   const torso = context.createLinearGradient(-5, 0, 5, 0)
   torso.addColorStop(0, shade(style.body, 1.05))
   torso.addColorStop(1, shade(style.body, 0.45))
@@ -62,13 +72,7 @@ export function drawSurvivor(context: CanvasRenderingContext2D, pose: Pose, phas
     dot(context, neck.x * 0.5 - 2, -(hipY + 8), 1.2, BLOOD)
   }
 
-  // Arms swing against the legs; repairing reaches forward (positive angle = in front) to the machine,
-  // hands working alternately.
-  const shoulder = { x: neck.x, y: neck.y - 1 }
-  const backArm = crouch ? 1.15 + Math.sin(phase * 2) * 0.15 : swing * 0.9
-  const frontArm = crouch ? 1.45 + Math.cos(phase * 2) * 0.2 : -swing * 0.9
-  drawArm(context, shoulder.x, shoulder.y, backArm, shade(style.body, 0.5), false)
-  const hand = drawArm(context, shoulder.x, shoulder.y, frontArm, shade(style.body, 0.85), true)
+  const hand = drawArm(context, shoulder.x + 0.5, shoulder.y, frontArm, flex, shade(style.body, 0.85))
   if (style.flashlight && !crouch) dot(context, hand.x + 1, -hand.y, 1.5, '#fff6cf') // the torch
 
   drawHead(context, neck.x + 0.5, neck.y + 5)
@@ -87,19 +91,23 @@ function drawLeg(context: CanvasRenderingContext2D, hipX: number, hipY: number, 
   limb(context, foot.x - 0.5, -foot.y, foot.x + 2.8, -foot.y, 2.4, SHOES)
 }
 
+/**
+ * Upper arm at `angle` from hanging straight down (positive = forward), forearm folded a further `flex` radians
+ * forward/up at the elbow, like a real elbow. Returns the hand position.
+ */
 function drawArm(
   context: CanvasRenderingContext2D,
   shoulderX: number,
   shoulderY: number,
   angle: number,
+  flex: number,
   color: string,
-  front: boolean,
 ): { x: number; y: number } {
   const upper = 6.5
   const lower = 6
   const elbow = { x: shoulderX + Math.sin(angle) * upper, y: shoulderY - Math.cos(angle) * upper }
-  const bend = angle - (front ? 0.5 : 0.3)
-  const hand = { x: elbow.x + Math.sin(-bend) * -lower, y: elbow.y - Math.cos(bend) * lower }
+  const forearm = angle + Math.max(0, flex)
+  const hand = { x: elbow.x + Math.sin(forearm) * lower, y: elbow.y - Math.cos(forearm) * lower }
   limb(context, shoulderX, -shoulderY, elbow.x, -elbow.y, 3, color)
   limb(context, elbow.x, -elbow.y, hand.x, -hand.y, 2.6, color)
   dot(context, hand.x, -hand.y, 1.7, SKIN_LIGHT)
