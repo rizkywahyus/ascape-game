@@ -1,65 +1,54 @@
-import type { ClientGame, RenderEntity } from '../game/clientGame'
+import type { ClientGame } from '../game/clientGame'
 import { computeLighting, type LightSource } from '../game/lighting'
 import { GameRules } from '../game/rules'
 import type { TileMap } from '../game/tileMap'
-import { Palette } from '../game/tiles'
-import type { EntityView, GeneratorView, SnapshotPayload } from '../net/protocol'
+import type { EntityView, SnapshotPayload } from '../net/protocol'
 import type { GameSocket } from '../net/socket'
 import { Animator } from './animator'
 import type { AsciiGrid } from './asciiGrid'
 import { viewportOrigin } from './camera'
-import { lit, mix, scale } from './color'
+import { parseHex } from './color'
 import type { Effects } from './effects'
-import { HUD_BOTTOM_ROWS, HUD_TOP_ROWS, renderHud } from './hud'
+import { renderHud } from './hud'
 import { renderOverlays } from './overlays'
-import { spriteFrame, type MaskKey } from './sprites/sprites'
-import { TILE_H, TILE_W, VOID, tileCellArt, type TileArtState } from './tileArt'
+import { AsciiShader } from './world/asciiShader'
+import { drawMonster, drawSurvivor, withRigTransform } from './world/rig'
+import { fill, paintGenerators, paintOpenGate, renderMapBase, TILE_H, TILE_W } from './world/worldPainter'
 
-const SURVIVOR_TINT = '#ffcf87'
-const MONSTER_TINT = '#ff5a4a'
-/** Brightness factor for map cells that are not lit now: never seen / seen before. */
-const AMBIENT_UNSEEN = 0.3
-const AMBIENT_REMEMBERED = 0.55
-const GLYPH_LIGHT_GAIN = 2.2
-const BLOCK_LIGHT_GAIN = 0.9
-/** Lit cells get a faint background wash in the light's colour, so light reads even on empty floor. */
-const LIGHT_WASH = 0.1
-const MIN_WASH_BRIGHTNESS = 0.04
+/** Light colour multiplied over the scene: warm flashlight for survivors, red dark-vision for the monster. */
+const SURVIVOR_TINT = [1.0, 0.9, 0.74] as const
+const MONSTER_TINT = [1.0, 0.5, 0.45] as const
+/** Brightness of map areas that are not lit now: never seen / seen before. */
+const AMBIENT_UNSEEN = 0.05
+const AMBIENT_REMEMBERED = 0.13
+/** Lights brighter than this are clipped by the multiply pass, so the base art is authored as "fully lit". */
+const LIGHT_BOOST = 1.25
 const GENERATOR_LIGHT_RADIUS = 3
 const GATE_LIGHT_RADIUS = 3
 /** Entities the server lets us see but that stand in darkness (teammate aura, sonar) are drawn dimmer. */
-const ENTITY_MIN_BRIGHTNESS = 0.55
+const ENTITY_MIN_BRIGHTNESS = 0.5
 const BLINK_MS = 400
+/** Rigs are authored for 20-pixel-wide tiles; scale them with the tile size. Survivors a bit larger to read well. */
+const RIG_SCALE = TILE_W / 20
+const SURVIVOR_SCALE = 1.3
 const INJURED_COLOR = '#e74c3c'
-const DOWNED_FACTOR = 0.6
-const TRAP_ART = '/^\\'
-const TRAP_COLOR = '#e74c3c'
-const TRAIL_COLOR = '#8e1b10'
-const SOUND_RING_TILES = 4
-const SONAR_COLOR = '#c0392b'
+const TRAIL_RGB = [150, 20, 12] as const
+const TRAP_RGB = [230, 60, 45] as const
+const SOUND_RING_TILES = 3
+const SONAR_RGB = [220, 40, 30] as const
+const NAME_COLOR = '#9a9aa6'
 const BOT_DEBUG_COLOR = '#d35dff'
-const NAME_COLOR = '#8a8a96'
 const SOUND_COLORS: Record<string, string> = {
   footsteps: '#f5f0e0',
   repair: '#f0c040',
-  locker: '#b07a45',
-  rock: '#aab0b8',
-  trap: '#e74c3c',
+  locker: '#d08a45',
+  rock: '#c8ccd2',
+  trap: '#ff5040',
   scream: '#ff6b5b',
-  generator: '#58d68d',
-  explosion: '#ff9f43',
+  generator: '#70ff90',
+  explosion: '#ffa050',
 }
-const SKIN = '#f1d3b3'
-const MASK_COLORS: Record<Exclude<MaskKey, 'b' | 'd' | 'h' | 'e'>, string> = {
-  w: '#efe6d0',
-  r: '#e74c3c',
-  y: '#ffd24a',
-  k: '#1a1a1a',
-}
-const MONSTER_EYES = '#ffe14a'
-const SURVIVOR_EYES = '#ffffff'
 
-/** An entity with its fractional render position (own predicted character or an interpolated one). */
 type Positioned = EntityView & { readonly renderX: number; readonly renderY: number }
 
 interface LightingCache {
@@ -67,34 +56,38 @@ interface LightingCache {
   brightness: Float32Array
 }
 
-/** World (cell) coordinates → screen grid cells for the current frame. */
+/** World pixels → scene pixels for the current frame (1 scene pixel = 1 character cell on screen). */
 interface View {
   readonly originX: number
   readonly originY: number
-  column(worldCellX: number): number
-  row(worldCellY: number): number
 }
 
 /**
- * Draws the world in "rich ASCII": each map tile is a TILE_W × TILE_H block of textured cells, characters are
- * animated multi-cell sprites, and light is interpolated per cell. The camera follows the player smoothly and
- * the view fills the whole screen.
+ * Draws the world as an image-to-ASCII picture: the scene is painted as small pixel art (1 pixel per character
+ * cell), lit, and turned into characters on the GPU by {@link AsciiShader}. The HUD, overlays and labels are drawn
+ * as crisp text on a separate layer above it.
  */
 export class SceneRenderer {
   /** Dev aid (F4): draw bot paths and states when the server sends them. */
   showBotDebug = false
-  private readonly grid: AsciiGrid
+  private readonly hud: AsciiGrid
   private readonly effects: Effects
+  private readonly shader: AsciiShader | null
+  private readonly scene = document.createElement('canvas')
+  private readonly sceneContext: CanvasRenderingContext2D
+  private readonly lightCanvas = document.createElement('canvas')
   private readonly animator = new Animator()
+  private mapBase: { map: TileMap; canvas: HTMLCanvasElement } | null = null
   private lightingCache: LightingCache | null = null
-  /** Tiles the local player has seen lit (drawn a little brighter than unexplored ones). */
   private seen: Uint8Array | null = null
   private seenMap: TileMap | null = null
   private lastOwnAttackCooldown = 0
 
-  constructor(grid: AsciiGrid, effects: Effects) {
-    this.grid = grid
+  constructor(hud: AsciiGrid, effects: Effects, worldCanvas: HTMLCanvasElement) {
+    this.hud = hud
     this.effects = effects
+    this.sceneContext = this.scene.getContext('2d')!
+    this.shader = createShader(worldCanvas)
   }
 
   /** Subscribes to match events that drive animations (the monster's swipe). */
@@ -104,62 +97,81 @@ export class SceneRenderer {
     })
   }
 
+  /** Resizes the world layer; `worldFontCss` sets how small (and so how many) the ASCII characters are. */
+  resize(widthCss: number, heightCss: number, worldFontCss: number, fontFamily: string): void {
+    if (!this.shader) return
+    const grid = this.shader.resize(widthCss, heightCss, worldFontCss, fontFamily)
+    this.scene.width = grid.columns
+    this.scene.height = grid.rows
+  }
+
   render(game: ClientGame, socket: GameSocket, now: number): void {
-    this.grid.clear(Palette.background)
+    this.hud.clear(null)
     this.effects.update(now)
+    const context = this.sceneContext
+    context.globalCompositeOperation = 'source-over'
+    context.globalAlpha = 1
+    context.fillStyle = '#000'
+    context.fillRect(0, 0, this.scene.width, this.scene.height)
     const map = game.map
     const snapshot = game.latest
     const self = game.self(now)
-    if (map && snapshot && self && game.phase === 'playing') this.renderWorld(game, map, snapshot, self, now)
-    renderHud(this.grid, game, socket, now)
-    renderOverlays(this.grid, game, now)
+    if (map && snapshot && self && game.phase === 'playing') this.paintWorld(game, map, snapshot, self, now)
+    this.shader?.draw(this.scene)
+    renderHud(this.hud, game, socket, now)
+    renderOverlays(this.hud, game, now)
   }
 
-  private renderWorld(game: ClientGame, map: TileMap, snapshot: SnapshotPayload, self: RenderEntity, now: number): void {
-    const viewRows = Math.max(this.grid.rows - HUD_TOP_ROWS - HUD_BOTTOM_ROWS, 0)
+  private paintWorld(game: ClientGame, map: TileMap, snapshot: SnapshotPayload, self: Positioned, now: number): void {
+    const context = this.sceneContext
     const shake = this.effects.shakeOffset(now)
     const focusX = Math.round(self.renderX * TILE_W + TILE_W / 2)
     const focusY = Math.round(self.renderY * TILE_H + TILE_H / 2)
-    const originX = viewportOrigin(focusX, map.width * TILE_W, this.grid.columns) + shake.dx
-    const originY = viewportOrigin(focusY, map.height * TILE_H, viewRows) + shake.dy
     const view: View = {
-      originX,
-      originY,
-      column: (x) => x - originX,
-      row: (y) => y - originY + HUD_TOP_ROWS,
+      originX: viewportOrigin(focusX, map.width * TILE_W, this.scene.width) + shake.dx * 2,
+      originY: viewportOrigin(focusY, map.height * TILE_H, this.scene.height) + shake.dy,
     }
+    const toX = (worldPx: number) => Math.round(worldPx - view.originX)
+    const toY = (worldPx: number) => Math.round(worldPx - view.originY)
+
+    context.imageSmoothingEnabled = false
+    context.drawImage(this.baseFor(map), -view.originX, -view.originY)
+    paintGenerators(context, snapshot.generators, toX, toY, now)
+    if (game.match?.gateOpen) paintOpenGate(context, map.findAll('gate'), toX, toY, now)
 
     const brightness = this.lighting(game, map, snapshot, self)
     this.rememberSeen(map, brightness)
-    this.drawTiles(game, map, snapshot, brightness, view, viewRows, now)
-    this.drawTrailsAndTraps(snapshot, view)
-    this.trackOwnAttack(snapshot, now)
+    this.applyLight(map, brightness, snapshot.you.role, view)
 
+    this.paintTrailsAndTraps(snapshot, toX, toY)
+    this.trackOwnAttack(snapshot, now)
     const others = game.others(now)
     this.animator.forget(new Set([...others.map((e) => e.id), self.id]))
     // Back to front: sprites lower on screen overlap the ones behind them.
     const drawOrder = [...others, ...(snapshot.you.hidden ? [] : [self])].sort((a, b) => a.renderY - b.renderY)
     for (const entity of drawOrder) {
-      this.drawEntity(entity, map, brightness, view, now, entity === self)
+      this.paintEntity(entity, map, brightness, toX, toY, now, entity === self)
       if (entity.activity === 'repair') this.effects.sparkle(entity.x, entity.y, now)
     }
-    if (snapshot.you.role === 'survivor') this.drawTeammateNames(others, view)
-    this.drawSounds(snapshot, self, view)
-    if (this.showBotDebug) this.drawBotDebug(snapshot, view)
-    this.drawEffects(view, self, now)
-    this.drawScreenTint(snapshot, now)
+    this.paintSounds(snapshot, self, toX, toY)
+    this.paintEffects(self, toX, toY, now)
+    this.paintScreenTint(snapshot, now)
+    if (snapshot.you.role === 'survivor') this.labelTeammates(others, toX, toY)
+    if (this.showBotDebug) this.labelBots(snapshot, toX, toY)
+  }
+
+  private baseFor(map: TileMap): HTMLCanvasElement {
+    if (this.mapBase?.map !== map) this.mapBase = { map, canvas: renderMapBase(map) }
+    return this.mapBase.canvas
   }
 
   // ------------------------------------------------------------------ lighting
 
-  private lighting(game: ClientGame, map: TileMap, snapshot: SnapshotPayload, self: RenderEntity): Float32Array {
+  private lighting(game: ClientGame, map: TileMap, snapshot: SnapshotPayload, self: Positioned): Float32Array {
     const you = snapshot.you
     const viewer = { x: self.x, y: self.y }
     const lights: LightSource[] = [
-      {
-        position: viewer,
-        radius: you.role === 'monster' ? GameRules.monster.visionRadius : lightRadius(you.flashlight),
-      },
+      { position: viewer, radius: you.role === 'monster' ? GameRules.monster.visionRadius : lightRadius(you.flashlight) },
     ]
     for (const entity of snapshot.entities) {
       if (entity.id !== you.id && entity.kind === 'survivor' && entity.flashlight) {
@@ -187,74 +199,61 @@ export class SceneRenderer {
     for (let i = 0; i < brightness.length; i++) if (brightness[i] > 0) this.seen[i] = 1
   }
 
-  /** Light at a world cell, bilinearly interpolated between tile centres so it fades smoothly. */
-  private sampleLight(map: TileMap, brightness: Float32Array, cellX: number, cellY: number): number {
-    const fx = (cellX + 0.5) / TILE_W - 0.5
-    const fy = (cellY + 0.5) / TILE_H - 0.5
-    const x0 = Math.floor(fx)
-    const y0 = Math.floor(fy)
-    const tx = fx - x0
-    const ty = fy - y0
-    const at = (x: number, y: number) => (map.isInside(x, y) ? brightness[y * map.width + x] : 0)
-    const top = at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx
-    const bottom = at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx
-    return top * (1 - ty) + bottom * ty
-  }
-
-  // ------------------------------------------------------------------ world
-
-  private drawTiles(
-    game: ClientGame,
-    map: TileMap,
-    snapshot: SnapshotPayload,
-    brightness: Float32Array,
-    view: View,
-    viewRows: number,
-    now: number,
-  ): void {
-    const tint = snapshot.you.role === 'monster' ? MONSTER_TINT : SURVIVOR_TINT
-    const generators = new Map<number, GeneratorView>()
-    for (const generator of snapshot.generators) generators.set(generator.y * map.width + generator.x, generator)
-    const state: TileArtState = { generators, gateOpen: game.match?.gateOpen ?? false, nowMs: now }
-    const seen = this.seen!
-    const mapCellsX = map.width * TILE_W
-    const mapCellsY = map.height * TILE_H
-
-    for (let row = 0; row < viewRows; row++) {
-      const cellY = view.originY + row
-      if (cellY < 0 || cellY >= mapCellsY) continue
-      const tileY = Math.floor(cellY / TILE_H)
-      for (let column = 0; column < this.grid.columns; column++) {
-        const cellX = view.originX + column
-        if (cellX < 0 || cellX >= mapCellsX) continue
-        const tileX = Math.floor(cellX / TILE_W)
-        const art = tileCellArt(map, tileX, tileY, cellX - tileX * TILE_W, cellY - tileY * TILE_H, state)
-        const light = this.sampleLight(map, brightness, cellX, cellY)
-        const screenRow = row + HUD_TOP_ROWS
-        if (art === VOID) continue
-        if (light > MIN_WASH_BRIGHTNESS) {
-          this.grid.fillCells(column, screenRow, 1, 1, scale(tint, light * LIGHT_WASH))
-        }
-        if (art.glyph === null || art.glyph === ' ') continue
-        const ambient = seen[tileY * map.width + tileX] ? AMBIENT_REMEMBERED : AMBIENT_UNSEEN
-        const gain = art.solid ? BLOCK_LIGHT_GAIN : GLYPH_LIGHT_GAIN
-        this.grid.drawGlyph(column, screenRow, art.glyph, lit(art.color, tint, light, ambient, gain))
-      }
+  /**
+   * Multiplies the scene by a per-tile light map, scaled up with smoothing so light falls off gradually across
+   * each tile instead of in blocks.
+   */
+  private applyLight(map: TileMap, brightness: Float32Array, role: string, view: View): void {
+    const light = this.lightCanvas
+    if (light.width !== map.width || light.height !== map.height) {
+      light.width = map.width
+      light.height = map.height
     }
+    const lightContext = light.getContext('2d')!
+    const image = lightContext.createImageData(map.width, map.height)
+    const tint = role === 'monster' ? MONSTER_TINT : SURVIVOR_TINT
+    const seen = this.seen!
+    for (let i = 0; i < brightness.length; i++) {
+      const ambient = seen[i] ? AMBIENT_REMEMBERED : AMBIENT_UNSEEN
+      const value = Math.min(1, Math.max(ambient, brightness[i] * LIGHT_BOOST))
+      image.data[i * 4] = 255 * value * tint[0]
+      image.data[i * 4 + 1] = 255 * value * tint[1]
+      image.data[i * 4 + 2] = 255 * value * tint[2]
+      image.data[i * 4 + 3] = 255
+    }
+    lightContext.putImageData(image, 0, 0)
+    const context = this.sceneContext
+    context.save()
+    context.globalCompositeOperation = 'multiply'
+    context.imageSmoothingEnabled = true
+    context.imageSmoothingQuality = 'high'
+    context.drawImage(light, -view.originX, -view.originY, map.width * TILE_W, map.height * TILE_H)
+    context.restore()
   }
 
-  private drawTrailsAndTraps(snapshot: SnapshotPayload, view: View): void {
+  private lightAt(map: TileMap, brightness: Float32Array, x: number, y: number): number {
+    return map.isInside(x, y) ? brightness[y * map.width + x] : 0
+  }
+
+  // ------------------------------------------------------------------ world objects
+
+  private paintTrailsAndTraps(snapshot: SnapshotPayload, toX: (x: number) => number, toY: (y: number) => number): void {
+    const context = this.sceneContext
     for (const trail of snapshot.trails) {
-      const color = scale(TRAIL_COLOR, 1.5 - trail.age)
+      const fade = 1 - trail.age * 0.8
+      const color = [TRAIL_RGB[0] * fade, TRAIL_RGB[1] * fade, TRAIL_RGB[2] * fade] as const
       const x = trail.x * TILE_W
-      const y = trail.y * TILE_H + TILE_H - 1
-      this.grid.drawGlyph(view.column(x + 1), view.row(y), ',', color)
-      this.grid.drawGlyph(view.column(x + 3), view.row(y - 1), '.', color)
+      const y = trail.y * TILE_H
+      fill(context, toX(x + 3), toY(y + 4), 2, 1, color)
+      fill(context, toX(x + 7), toY(y + 2), 1, 1, color)
+      fill(context, toX(x + 8), toY(y + 5), 2, 1, color)
     }
     for (const trap of snapshot.traps) {
-      const x = trap.x * TILE_W + 1
-      const y = trap.y * TILE_H + TILE_H - 1
-      this.grid.drawText(view.column(x), view.row(y), TRAP_ART, TRAP_COLOR)
+      const x = toX(trap.x * TILE_W + 3)
+      const y = toY(trap.y * TILE_H + 2)
+      fill(context, x + 2, y, 2, 1, TRAP_RGB)
+      fill(context, x + 1, y + 1, 4, 1, TRAP_RGB)
+      fill(context, x, y + 2, 6, 1, TRAP_RGB)
     }
   }
 
@@ -269,125 +268,155 @@ export class SceneRenderer {
     this.lastOwnAttackCooldown = cooldown
   }
 
-  private drawEntity(
+  private paintEntity(
     entity: Positioned,
     map: TileMap,
     brightness: Float32Array,
-    view: View,
+    toX: (x: number) => number,
+    toY: (y: number) => number,
     now: number,
     isSelf: boolean,
   ): void {
-    const { animation, frame, facing } = this.animator.frame(entity, now)
-    const sprite = spriteFrame(animation, frame, facing)
-    const feetX = Math.round(entity.renderX * TILE_W + Math.floor(TILE_W / 2))
-    const feetY = Math.round(entity.renderY * TILE_H + TILE_H - 1)
-    const light = isSelf ? 1 : Math.max(ENTITY_MIN_BRIGHTNESS, this.sampleLight(map, brightness, feetX, feetY))
-    const body = this.bodyColor(entity, now)
-    for (const cell of sprite.cells) {
-      const color = scale(this.maskColor(cell.mask, body, entity.kind), light)
-      this.grid.drawGlyph(view.column(feetX + cell.dx), view.row(feetY + cell.dy), cell.glyph, color)
-    }
+    const { pose, phase, facing } = this.animator.frame(entity, now)
+    const feetX = toX(entity.renderX * TILE_W + TILE_W / 2)
+    const feetY = toY(entity.renderY * TILE_H + TILE_H - 1)
+    const context = this.sceneContext
+    context.globalAlpha = isSelf
+      ? 1
+      : Math.max(ENTITY_MIN_BRIGHTNESS, Math.min(1, this.lightAt(map, brightness, entity.x, entity.y) * LIGHT_BOOST))
+    const scale = entity.kind === 'survivor' ? RIG_SCALE * SURVIVOR_SCALE : RIG_SCALE
+    withRigTransform(context, feetX, feetY, facing, scale, this.cellAspect(), () => {
+      if (entity.kind === 'monster') drawMonster(context, pose, phase)
+      else drawSurvivor(context, pose, phase, {
+        body: this.bodyColor(entity, now),
+        injured: entity.health === 'injured',
+        flashlight: entity.flashlight,
+      })
+    })
+    context.globalAlpha = 1
+  }
+
+  /** Character cells are about twice as tall as wide; rigs are squashed vertically to stay in proportion. */
+  private cellAspect(): number {
+    const cell = this.shader?.cellSizeCss()
+    return cell ? cell.width / cell.height : 0.5
   }
 
   private bodyColor(entity: EntityView, now: number): string {
-    if (entity.health === 'downed') return scale(entity.color, DOWNED_FACTOR)
-    if (entity.health === 'injured' && Math.floor(now / BLINK_MS) % 2 === 0) return mix(entity.color, INJURED_COLOR, 0.7)
+    if (entity.health === 'injured' && Math.floor(now / BLINK_MS) % 2 === 0) return INJURED_COLOR
     return entity.color
   }
 
-  private maskColor(mask: MaskKey, body: string, kind: EntityView['kind']): string {
-    switch (mask) {
-      case 'b':
-        return body
-      case 'd':
-        return scale(body, 0.62)
-      case 'h':
-        return kind === 'survivor' ? mix(body, SKIN, 0.55) : scale(body, 0.8)
-      case 'e':
-        return kind === 'monster' ? MONSTER_EYES : SURVIVOR_EYES
-      default:
-        return MASK_COLORS[mask]
-    }
-  }
+  // ------------------------------------------------------------------ effects
 
-  private drawTeammateNames(others: readonly Positioned[], view: View): void {
-    for (const entity of others) {
-      if (entity.kind !== 'survivor') continue
-      const label = entity.name.replace(' (bot)', '')
-      const x = Math.round(entity.renderX * TILE_W + TILE_W / 2) - Math.floor(label.length / 2)
-      const y = Math.round(entity.renderY * TILE_H) - 1
-      this.grid.drawText(view.column(x), view.row(y), label, NAME_COLOR)
-    }
-  }
-
-  // ------------------------------------------------------------------ overlays in the world
-
-  /** The monster hears noises as arcs around itself, pointing towards the source: `)))`. */
-  private drawSounds(snapshot: SnapshotPayload, self: RenderEntity, view: View): void {
+  /** The monster hears noises as arcs `)))` around itself, pointing towards the source. */
+  private paintSounds(snapshot: SnapshotPayload, self: Positioned, toX: (x: number) => number, toY: (y: number) => number): void {
     const centerX = self.renderX * TILE_W + TILE_W / 2
     const centerY = self.renderY * TILE_H + TILE_H / 2
     for (const sound of snapshot.sounds) {
-      const color = scale(SOUND_COLORS[sound.kind] ?? '#ffffff', 0.4 + sound.intensity * 0.6)
-      const horizontal = Math.abs(sound.dx) >= Math.abs(sound.dy)
-      const glyph = horizontal ? (sound.dx > 0 ? ')' : '(') : sound.dy > 0 ? 'v' : '^'
+      const base = parseHex(SOUND_COLORS[sound.kind] ?? '#ffffff')
+      const angle = Math.atan2(sound.dy, sound.dx)
       const arcs = Math.max(1, Math.round(sound.intensity * 3))
       for (let arc = 0; arc < arcs; arc++) {
-        const distance = SOUND_RING_TILES + arc * 0.6
-        const x = Math.round(centerX + sound.dx * distance * TILE_W)
-        const y = Math.round(centerY + sound.dy * distance * TILE_H)
-        // Each arc is three glyphs wide, perpendicular to the direction, like `)` stacked.
-        for (let spread = -1; spread <= 1; spread++) {
-          this.grid.drawGlyph(view.column(x + (horizontal ? 0 : spread)), view.row(y + (horizontal ? spread : 0)), glyph, color)
+        const radius = SOUND_RING_TILES + arc * 0.8
+        const fade = (0.5 + 0.5 * sound.intensity) * (1 - arc * 0.2)
+        const color = [base[0] * fade, base[1] * fade, base[2] * fade] as const
+        for (let step = -4; step <= 4; step++) {
+          const a = angle + step * 0.07
+          fill(this.sceneContext, toX(centerX + Math.cos(a) * radius * TILE_W), toY(centerY + Math.sin(a) * radius * TILE_H), 1, 1, color)
         }
       }
     }
   }
 
-  private drawBotDebug(snapshot: SnapshotPayload, view: View): void {
-    for (const bot of snapshot.bots ?? []) {
-      bot.path.forEach((cell, index) => {
-        if (index === 0) return
-        this.grid.drawGlyph(view.column(cell.x * TILE_W + 2), view.row(cell.y * TILE_H + 1), '∙', BOT_DEBUG_COLOR)
-      })
-      const head = bot.path[0]
-      if (head) {
-        this.grid.drawText(view.column(head.x * TILE_W + 3), view.row(head.y * TILE_H - 2), `#${bot.id} ${bot.state}`, BOT_DEBUG_COLOR)
-      }
-    }
-  }
-
-  private drawEffects(view: View, self: RenderEntity, now: number): void {
+  private paintEffects(self: Positioned, toX: (x: number) => number, toY: (y: number) => number, now: number): void {
+    const context = this.sceneContext
     for (const particle of this.effects.particles) {
       const { x, y, life } = this.effects.particlePosition(particle, now)
-      const column = view.column(Math.round(x * TILE_W + TILE_W / 2))
-      const row = view.row(Math.round(y * TILE_H + TILE_H / 2))
-      this.grid.drawGlyph(column, row, particle.glyph, scale(particle.color, 0.4 + 0.6 * life))
+      const rgb = parseHex(particle.color)
+      const fade = 0.4 + 0.6 * life
+      fill(context, toX(x * TILE_W + TILE_W / 2), toY(y * TILE_H + TILE_H / 2), 1, 1, [rgb[0] * fade, rgb[1] * fade, rgb[2] * fade])
     }
     const sonar = this.effects.sonarRadius(now, GameRules.monster.sonarRadius)
     if (sonar === null) return
     const origin = this.effects.sonarOrigin ?? { x: self.x, y: self.y }
-    const points = Math.ceil(sonar * 14)
+    const points = Math.ceil(sonar * 40)
     for (let i = 0; i < points; i++) {
-      const angle = (i / points) * Math.PI * 2
-      const x = Math.round((origin.x + 0.5 + Math.cos(angle) * sonar) * TILE_W)
-      const y = Math.round((origin.y + 0.5 + Math.sin(angle) * sonar) * TILE_H)
-      this.grid.drawGlyph(view.column(x), view.row(y), '·', SONAR_COLOR)
+      const a = (i / points) * Math.PI * 2
+      fill(context, toX((origin.x + 0.5 + Math.cos(a) * sonar) * TILE_W), toY((origin.y + 0.5 + Math.sin(a) * sonar) * TILE_H), 1, 1, SONAR_RGB)
     }
   }
 
-  /** Hit flash and the survivor heartbeat vignette. */
-  private drawScreenTint(snapshot: SnapshotPayload, now: number): void {
+  /** Hit flash and the survivor heartbeat vignette, painted into the scene so they turn into ASCII too. */
+  private paintScreenTint(snapshot: SnapshotPayload, now: number): void {
+    const context = this.sceneContext
+    const { width, height } = this.scene
     const flash = this.effects.flashAlpha(now)
-    if (flash > 0) this.grid.tint(this.effects.flashColor, flash)
+    if (flash > 0) {
+      context.globalAlpha = flash
+      context.fillStyle = this.effects.flashColor
+      context.fillRect(0, 0, width, height)
+      context.globalAlpha = 1
+    }
     const terror = snapshot.you.terror
     if (terror > 0 && snapshot.you.role === 'survivor') {
       const beatsPerSecond = 1 + terror * 1.8
       const pulse = Math.pow(Math.max(0, Math.sin((now / 1000) * Math.PI * beatsPerSecond)), 8)
-      this.grid.vignette('#8b0000', terror * (0.3 + 0.4 * pulse))
+      const gradient = context.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.25,
+        width / 2, height / 2, Math.max(width, height) * 0.62)
+      gradient.addColorStop(0, 'rgba(120, 0, 0, 0)')
+      gradient.addColorStop(1, `rgba(150, 0, 0, ${Math.min(0.85, terror * (0.35 + 0.5 * pulse))})`)
+      context.fillStyle = gradient
+      context.fillRect(0, 0, width, height)
+    }
+  }
+
+  // ------------------------------------------------------------------ text labels (HUD layer)
+
+  /** Maps a scene pixel to a HUD grid cell (the two layers have different glyph sizes). */
+  private hudCell(sceneX: number, sceneY: number): { column: number; row: number } {
+    const world = this.shader!.cellSizeCss()
+    const hud = this.hud.cellSizeCss()
+    return {
+      column: Math.round((sceneX * world.width) / hud.width),
+      row: Math.round((sceneY * world.height) / hud.height),
+    }
+  }
+
+  private labelTeammates(others: readonly Positioned[], toX: (x: number) => number, toY: (y: number) => number): void {
+    for (const entity of others) {
+      if (entity.kind !== 'survivor') continue
+      const label = entity.name.replace(' (bot)', '')
+      const { column, row } = this.hudCell(toX(entity.renderX * TILE_W + TILE_W / 2), toY(entity.renderY * TILE_H - TILE_H))
+      this.hud.drawText(column - Math.floor(label.length / 2), row, label, NAME_COLOR)
+    }
+  }
+
+  private labelBots(snapshot: SnapshotPayload, toX: (x: number) => number, toY: (y: number) => number): void {
+    for (const bot of snapshot.bots ?? []) {
+      bot.path.forEach((cell, index) => {
+        if (index === 0) return
+        const { column, row } = this.hudCell(toX(cell.x * TILE_W + TILE_W / 2), toY(cell.y * TILE_H + TILE_H / 2))
+        this.hud.drawGlyph(column, row, '∙', BOT_DEBUG_COLOR)
+      })
+      const head = bot.path[0]
+      if (head) {
+        const { column, row } = this.hudCell(toX(head.x * TILE_W + TILE_W), toY(head.y * TILE_H - 8))
+        this.hud.drawText(column, row, `#${bot.id} ${bot.state}`, BOT_DEBUG_COLOR)
+      }
     }
   }
 }
 
 function lightRadius(flashlightOn: boolean): number {
   return flashlightOn ? GameRules.survivor.flashlightRadius : GameRules.survivor.darkRadius
+}
+
+function createShader(canvas: HTMLCanvasElement): AsciiShader | null {
+  try {
+    return new AsciiShader(canvas)
+  } catch (error) {
+    console.error('ASCII shader unavailable; the world will not render', error)
+    return null
+  }
 }

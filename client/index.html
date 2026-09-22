@@ -18,12 +18,17 @@
         color: #c8c8c8;
         font-family: 'JetBrains Mono', ui-monospace, monospace;
       }
+      #world,
       #screen {
+        position: fixed;
+        top: 0;
+        left: 0;
         display: block;
       }
     </style>
   </head>
   <body>
+    <canvas id="world"></canvas>
     <canvas id="screen"></canvas>
     <div id="ui"></div>
     <script type="module" src="/src/main.ts"></script>

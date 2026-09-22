@@ -5,12 +5,10 @@ import { KeyboardInput } from './input/keyboard'
 import type { RolePreference } from './net/protocol'
 import { gameSocketUrl } from './net/serverUrl'
 import { GameSocket } from './net/socket'
-import { AsciiGrid, LINE_HEIGHT_RATIO } from './render/asciiGrid'
+import { AsciiGrid } from './render/asciiGrid'
 import { DebugOverlay } from './render/debugOverlay'
 import { Effects } from './render/effects'
-import { HUD_BOTTOM_ROWS, HUD_TOP_ROWS } from './render/hud'
 import { SceneRenderer } from './render/sceneRenderer'
-import { TILE_H } from './render/tileArt'
 import { Api } from './ui/api'
 import { errorText, showAuthScreen } from './ui/authScreen'
 import { showLobbyScreen } from './ui/lobbyScreen'
@@ -18,10 +16,15 @@ import './ui/styles.css'
 
 const FONT_FAMILY = '"JetBrains Mono", ui-monospace, monospace'
 const FONT_LOAD_SPEC = '16px "JetBrains Mono"'
-/** Roughly this many map tiles fit the screen height; the font scales to match, so any screen is filled. */
-const VIEW_TILES_TALL = 17
-const MIN_FONT_PX = 8
-const MAX_FONT_PX = 22
+/** Crisp, readable text for the HUD, menus and labels. */
+const HUD_FONT_PX = 15
+/** The world is drawn with many tiny characters; - / = zoom between these bounds. */
+const DEFAULT_WORLD_FONT_PX = 5
+const MIN_WORLD_FONT_PX = 3
+const MAX_WORLD_FONT_PX = 14
+const ZOOM_OUT_KEY = 'Minus'
+const ZOOM_IN_KEY = 'Equal'
+const WORLD_FONT_STORAGE_KEY = 'ascape.worldFont.v2'
 const DEBUG_TOGGLE_KEY = 'F3'
 const BOT_DEBUG_TOGGLE_KEY = 'F4'
 const CRT_TOGGLE_KEY = 'F2'
@@ -43,10 +46,21 @@ async function loadFont(): Promise<void> {
   }
 }
 
-function fontSizeFor(viewportHeight: number): number {
-  const rows = VIEW_TILES_TALL * TILE_H + HUD_TOP_ROWS + HUD_BOTTOM_ROWS
-  const size = Math.floor(viewportHeight / rows / LINE_HEIGHT_RATIO)
-  return Math.min(MAX_FONT_PX, Math.max(MIN_FONT_PX, size))
+function readWorldFont(): number {
+  try {
+    const stored = Number(localStorage.getItem(WORLD_FONT_STORAGE_KEY))
+    return stored >= MIN_WORLD_FONT_PX && stored <= MAX_WORLD_FONT_PX ? stored : DEFAULT_WORLD_FONT_PX
+  } catch {
+    return DEFAULT_WORLD_FONT_PX
+  }
+}
+
+function storeWorldFont(size: number): void {
+  try {
+    localStorage.setItem(WORLD_FONT_STORAGE_KEY, String(size))
+  } catch {
+    // Storage may be blocked (private mode); the zoom still applies for this session.
+  }
 }
 
 function enterFullscreen(): void {
@@ -64,17 +78,19 @@ function roomFromUrl(): string | null {
 
 async function start(): Promise<void> {
   const canvas = document.querySelector<HTMLCanvasElement>('#screen')
+  const worldCanvas = document.querySelector<HTMLCanvasElement>('#world')
   const ui = document.querySelector<HTMLElement>('#ui')
-  if (!canvas || !ui) throw new Error('#screen or #ui missing from index.html')
+  if (!canvas || !worldCanvas || !ui) throw new Error('#screen, #world or #ui missing from index.html')
 
   await loadFont()
 
   const auth = new Auth()
   const api = new Api(() => auth.accessToken())
   const keyboard = new KeyboardInput(window)
-  const grid = new AsciiGrid(canvas, FONT_FAMILY, fontSizeFor(window.innerHeight))
+  const grid = new AsciiGrid(canvas, FONT_FAMILY, HUD_FONT_PX)
+  let worldFontPx = readWorldFont()
   const effects = new Effects()
-  const renderer = new SceneRenderer(grid, effects)
+  const renderer = new SceneRenderer(grid, effects, worldCanvas)
   const debugOverlay = new DebugOverlay(grid)
   const audio = new AudioEngine()
   let session: GameSession | null = null
@@ -118,8 +134,13 @@ async function start(): Promise<void> {
   }
 
   const resize = () => {
-    grid.setFontSize(fontSizeFor(window.innerHeight))
     grid.resize(window.innerWidth, window.innerHeight)
+    renderer.resize(window.innerWidth, window.innerHeight, worldFontPx, FONT_FAMILY)
+  }
+  const zoom = (step: number) => {
+    worldFontPx = Math.min(MAX_WORLD_FONT_PX, Math.max(MIN_WORLD_FONT_PX, worldFontPx + step))
+    storeWorldFont(worldFontPx)
+    resize()
   }
   window.addEventListener('resize', resize)
   resize()
@@ -134,6 +155,8 @@ async function start(): Promise<void> {
       if (presses.has(BOT_DEBUG_TOGGLE_KEY)) renderer.showBotDebug = !renderer.showBotDebug
       if (presses.has(CRT_TOGGLE_KEY)) document.body.classList.toggle(CRT_CLASS)
       if (presses.has(MUTE_KEY)) audio.toggleMute()
+      if (presses.has(ZOOM_OUT_KEY)) zoom(-1)
+      if (presses.has(ZOOM_IN_KEY)) zoom(1)
       session.game.queuePresses(presses)
       session.game.update(now - previousTime, now)
       audio.update(session.game, now)

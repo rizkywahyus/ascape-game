@@ -8,7 +8,7 @@ const SPRINT_KEYS = ['ShiftLeft', 'ShiftRight']
 const INTERACT_KEYS = ['KeyE']
 
 /** Keys whose browser default (scrolling) must be suppressed while playing. */
-const CAPTURED_KEYS = new Set([...UP_KEYS, ...DOWN_KEYS, ...LEFT_KEYS, ...RIGHT_KEYS, 'Space', 'F2', 'F3', 'F4'])
+const CAPTURED_KEYS = new Set([...UP_KEYS, ...DOWN_KEYS, ...LEFT_KEYS, ...RIGHT_KEYS, 'Space', 'F2', 'F3', 'F4', 'Minus', 'Equal'])
 
 /** Tracks held keys by physical code (layout independent) and one-shot presses since the last read. */
 export class KeyboardInput {

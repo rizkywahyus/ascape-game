@@ -20,7 +20,7 @@ export class AsciiGrid {
   private atlasPixelRatio = 0
 
   constructor(canvas: HTMLCanvasElement, fontFamily: string, fontSizeCss: number) {
-    const context = canvas.getContext('2d', { alpha: false })
+    const context = canvas.getContext('2d')
     if (!context) throw new Error('2D canvas context unavailable')
     this.canvas = canvas
     this.context = context
@@ -48,9 +48,20 @@ export class AsciiGrid {
     this.canvas.style.height = `${this.canvas.height / pixelRatio}px`
   }
 
-  clear(color: string): void {
+  /** Fills with `color`, or makes the canvas transparent when null (HUD layer over the world). */
+  clear(color: string | null): void {
+    if (color === null) {
+      this.context.clearRect(0, 0, this.canvas.width, this.canvas.height)
+      return
+    }
     this.context.fillStyle = color
     this.context.fillRect(0, 0, this.canvas.width, this.canvas.height)
+  }
+
+  /** Size of one cell in CSS pixels. */
+  cellSizeCss(): { width: number; height: number } {
+    const pixelRatio = window.devicePixelRatio || 1
+    return { width: this.cellWidth / pixelRatio, height: this.cellHeight / pixelRatio }
   }
 
   /** Column and row may be fractional (sub-cell positions for smooth movement). */

@@ -1,12 +1,14 @@
 import type { Activity, Health, Role } from '../net/protocol'
-import type { Facing } from './sprites/sprites'
+
+export type Facing = 1 | -1
 
 /** What an entity looks like it is doing, derived from how it moves (the server does not send poses). */
 export type Pose = 'idle' | 'walk' | 'run' | 'repair' | 'downed' | 'attack' | 'lunge' | 'catch'
 
 export interface AnimationFrame {
-  readonly animation: string
-  readonly frame: number
+  readonly pose: Pose
+  /** Continuous cycle position in radians (one full stride per 2π), for smooth limb swings. */
+  readonly phase: number
   readonly facing: Facing
 }
 
@@ -34,8 +36,9 @@ const MOVING_GRACE_MS = 260
 const RUN_INTERVAL_MS = 150
 const LUNGE_INTERVAL_MS = 125
 const ATTACK_POSE_MS = 280
-const FRAME_MS: Record<Pose, number> = {
-  idle: 650, walk: 150, run: 95, repair: 220, downed: 1_000, attack: 1_000, lunge: 1_000, catch: 1_000,
+/** Duration of one full animation cycle per pose. */
+const CYCLE_MS: Record<Pose, number> = {
+  idle: 2_200, walk: 400, run: 260, repair: 700, downed: 3_000, attack: 1_000, lunge: 280, catch: 900,
 }
 const INTERVAL_SMOOTHING = 0.5
 
@@ -56,9 +59,8 @@ export class Animator {
   frame(entity: Animatable, nowMs: number): AnimationFrame {
     const motion = this.track(entity, nowMs)
     const pose = this.pose(entity, motion, nowMs)
-    const animation = `${entity.kind}.${pose}`
-    const frame = Math.floor((nowMs + entity.id * 137) / FRAME_MS[pose])
-    return { animation, frame, facing: motion.facing }
+    const phase = (((nowMs + entity.id * 137) / CYCLE_MS[pose]) % 1) * Math.PI * 2
+    return { pose, phase, facing: motion.facing }
   }
 
   private track(entity: Animatable, nowMs: number): Motion {

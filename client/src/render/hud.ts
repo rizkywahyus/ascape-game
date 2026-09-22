@@ -65,7 +65,7 @@ function renderBottomBar(grid: AsciiGrid, game: ClientGame, you: SelfState): voi
   }
   if (you.role === 'monster') renderMonsterStatus(grid, you, statusRow)
   else renderSurvivorStatus(grid, you, statusRow)
-  grid.drawText(1, helpRow, `${HELP[you.role]} · M sound · F2 crt · Esc menu`, Palette.hud)
+  grid.drawText(1, helpRow, `${HELP[you.role]} · -/= zoom · M sound · Esc menu`, Palette.hud)
 }
 
 function renderSurvivorStatus(grid: AsciiGrid, you: SelfState, row: number): void {
