@@ -12,6 +12,8 @@ const DIM = '#7a7a86'
 const SKILL_WINDOW_COLOR = '#58d68d'
 const SKILL_WAIT_COLOR = '#f0c040'
 const SKILL_BAR_WIDTH = 24
+/** Free hosting sleeps the server when idle; past this wait, say so instead of looking stuck. */
+const SLOW_CONNECT_HINT_MS = 5_000
 
 interface Line {
   readonly text: string
@@ -22,7 +24,9 @@ interface Line {
 export function renderOverlays(grid: AsciiGrid, game: ClientGame, now: number): void {
   switch (game.phase) {
     case 'connecting':
-      box(grid, 'connecting', [{ text: 'looking for a match…', color: DIM }])
+      box(grid, 'connecting', now - game.createdAtMs < SLOW_CONNECT_HINT_MS
+        ? [{ text: 'looking for a match…', color: DIM }]
+        : [{ text: 'waking the server…', color: DIM }, { text: 'free hosting sleeps when idle; up to a minute', color: DIM }])
       break
     case 'lobby':
       renderLobby(grid, game, now)

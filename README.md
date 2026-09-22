@@ -157,6 +157,22 @@ on a different origin than the server.
 3. Auth → Providers: enable **anonymous sign-ins** (guest play) and email (magic link).
    Auth → URL configuration: add your client URLs to the redirect allow-list.
 
+## Deploying
+
+The server runs on [Render](https://render.com) (Docker, free plan) and the client on [Vercel](https://vercel.com).
+
+**Server (Render)**: Dashboard → New → Blueprint → pick the repo; [`render.yaml`](render.yaml) builds
+`server/Dockerfile` from the repo root. Fill in the secret env vars when asked: `SUPABASE_URL`, `DB_URL`,
+`DB_USER`, `DB_PASSWORD`, and `ALLOWED_ORIGINS` = the Vercel URL. The image's JVM flags are sized for 512 MB
+(100 simultaneous clients measured at ~220 MB RSS). The free plan sleeps after 15 minutes idle; the first
+visitor wakes it (up to a minute). The menu's leaderboard request starts that early, and the connecting panel says
+what is happening.
+
+**Client (Vercel)**: import the repo with Root Directory `client` (keep "Include files outside the root
+directory" on: the build reads `../shared`). Env vars: `VITE_SERVER_URL` = the Render URL (e.g.
+`https://ascape-server.onrender.com`), `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`. Then add the Vercel
+URL to Supabase Auth → URL configuration (site URL and redirect list).
+
 ## Controls
 
 | | Survivor | Monster |
@@ -171,8 +187,8 @@ Esc menu · `-`/`=` zoom · M sound · F2 CRT · F3 netcode overlay · F4 bot de
 ## Tests
 
 ```bash
-cd server && ./mvnw verify          # 67 tests: simulation, visibility, bots, protocol, auth, backpressure
-cd client && npm test && npm run build   # 31 tests: movement parity, prediction, interpolation, lighting, animation
+cd server && ./mvnw verify          # 77 tests: simulation, visibility, bots, protocol, auth, backpressure
+cd client && npm test && npm run build   # 37 tests: movement parity, prediction, interpolation, lighting, animation
 cd loadtest && npm install && node loadtest.mjs --clients 100 --seconds 30
 ```
 

@@ -64,6 +64,8 @@ type LocalActionListener = (action: Action, game: ClientGame) => void
  */
 export class ClientGame {
   phase: RoomPhase = 'connecting'
+  /** When matchmaking began (performance.now()), so a slow first connection can explain itself. */
+  readonly createdAtMs = performance.now()
   roomId: string | null = null
   map: TileMap | null = null
   tickRate: number = GameRules.tickRate
