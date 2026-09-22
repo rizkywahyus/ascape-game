@@ -37,7 +37,8 @@ CLIENT_URL="http://${LAN_IP}:${CLIENT_PORT}"
 # The client proxies /api and /ws to the server, so the browser's origin is the client's.
 ALLOWED="${CLIENT_URL},http://localhost:${CLIENT_PORT}"
 
-# Stops a process and everything it spawned (Maven forks the app's JVM, npx spawns node).
+# Stops a process and everything it spawned (Maven forks the app's JVM, npx spawns node). The subshells above
+# exec, so the script's children are Maven and npx themselves and a `pkill -f dev-lan.sh` hits only the script.
 kill_tree() {
   local child
   for child in $(pgrep -P "$1"); do kill_tree "$child"; done
@@ -59,10 +60,10 @@ fi
 
 echo "Starting the server on :${SERVER_PORT}…"
 if $USE_AUTH; then
-  (cd "$ROOT/server" && ALLOWED_ORIGINS="$ALLOWED" ./mvnw -q spring-boot:run) &
+  (cd "$ROOT/server" && ALLOWED_ORIGINS="$ALLOWED" exec ./mvnw -q spring-boot:run) &
 else
   # Empty values override .env: no token needed, profiles and stats stay in memory.
-  (cd "$ROOT/server" && ALLOWED_ORIGINS="$ALLOWED" AUTH_ALLOW_UNAUTHENTICATED=true DB_URL= ./mvnw -q spring-boot:run) &
+  (cd "$ROOT/server" && ALLOWED_ORIGINS="$ALLOWED" AUTH_ALLOW_UNAUTHENTICATED=true DB_URL= exec ./mvnw -q spring-boot:run) &
 fi
 
 for ((waited = 0; waited < SERVER_START_TIMEOUT_SECONDS; waited++)); do
@@ -76,11 +77,11 @@ fi
 
 echo "Starting the client on :${CLIENT_PORT}…"
 if $USE_AUTH; then
-  (cd "$ROOT/client" && npx vite --host 0.0.0.0 --port "$CLIENT_PORT" --strictPort) &
+  (cd "$ROOT/client" && exec npx vite --host 0.0.0.0 --port "$CLIENT_PORT" --strictPort) &
 else
   # Without Supabase keys the client skips sign-in and plays as a guest.
   (cd "$ROOT/client" && VITE_SUPABASE_URL= VITE_SUPABASE_PUBLISHABLE_KEY= \
-    npx vite --host 0.0.0.0 --port "$CLIENT_PORT" --strictPort) &
+    exec npx vite --host 0.0.0.0 --port "$CLIENT_PORT" --strictPort) &
 fi
 
 echo
