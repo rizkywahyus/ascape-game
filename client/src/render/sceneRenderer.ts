@@ -3,39 +3,42 @@ import { computeLighting, type LightSource } from '../game/lighting'
 import { GameRules } from '../game/rules'
 import type { TileMap } from '../game/tileMap'
 import { Palette } from '../game/tiles'
-import type { GeneratorView, Health, SnapshotPayload } from '../net/protocol'
+import type { EntityView, GeneratorView, SnapshotPayload } from '../net/protocol'
 import type { GameSocket } from '../net/socket'
+import { Animator } from './animator'
 import type { AsciiGrid } from './asciiGrid'
 import { viewportOrigin } from './camera'
 import { lit, mix, scale } from './color'
 import type { Effects } from './effects'
 import { HUD_BOTTOM_ROWS, HUD_TOP_ROWS, renderHud } from './hud'
 import { renderOverlays } from './overlays'
+import { spriteFrame, type MaskKey } from './sprites/sprites'
+import { TILE_H, TILE_W, VOID, tileCellArt, type TileArtState } from './tileArt'
 
 const SURVIVOR_TINT = '#ffcf87'
 const MONSTER_TINT = '#ff5a4a'
 /** Brightness factor for map cells that are not lit now: never seen / seen before. */
-const AMBIENT_UNSEEN = 0.35
-const AMBIENT_REMEMBERED = 0.6
+const AMBIENT_UNSEEN = 0.3
+const AMBIENT_REMEMBERED = 0.55
+const GLYPH_LIGHT_GAIN = 2.2
+const BLOCK_LIGHT_GAIN = 0.9
+/** Lit cells get a faint background wash in the light's colour, so light reads even on empty floor. */
+const LIGHT_WASH = 0.1
+const MIN_WASH_BRIGHTNESS = 0.04
 const GENERATOR_LIGHT_RADIUS = 3
 const GATE_LIGHT_RADIUS = 3
-const GENERATOR_DONE_GLYPH = '■'
-const GENERATOR_DONE_COLOR = '#58d68d'
-const GENERATOR_IDLE_COLOR = '#e0b030'
-const GATE_OPEN_GLYPHS = ['░', '▒']
-const TRAP_GLYPH = '^'
-const TRAP_COLOR = '#e74c3c'
-const TRAIL_GLYPH = '.'
-const TRAIL_COLOR = '#8e1b10'
-const DOWNED_COLOR = '#7b241c'
-const INJURED_COLOR = '#e74c3c'
+/** Entities the server lets us see but that stand in darkness (teammate aura, sonar) are drawn dimmer. */
+const ENTITY_MIN_BRIGHTNESS = 0.55
 const BLINK_MS = 400
-const GLYPH_LIGHT_GAIN = 2.4
-const BLOCK_LIGHT_GAIN = 0.7
-const BLOCK_GLYPH = '█'
-const SOUND_RING_RADIUS = 5
+const INJURED_COLOR = '#e74c3c'
+const DOWNED_FACTOR = 0.6
+const TRAP_ART = '/^\\'
+const TRAP_COLOR = '#e74c3c'
+const TRAIL_COLOR = '#8e1b10'
+const SOUND_RING_TILES = 4
 const SONAR_COLOR = '#c0392b'
 const BOT_DEBUG_COLOR = '#d35dff'
+const NAME_COLOR = '#8a8a96'
 const SOUND_COLORS: Record<string, string> = {
   footsteps: '#f5f0e0',
   repair: '#f0c040',
@@ -46,38 +49,59 @@ const SOUND_COLORS: Record<string, string> = {
   generator: '#58d68d',
   explosion: '#ff9f43',
 }
-
-interface Drawable {
-  readonly glyph: string
-  readonly color: string
-  readonly health: Health
+const SKIN = '#f1d3b3'
+const MASK_COLORS: Record<Exclude<MaskKey, 'b' | 'd' | 'h' | 'e'>, string> = {
+  w: '#efe6d0',
+  r: '#e74c3c',
+  y: '#ffd24a',
+  k: '#1a1a1a',
 }
+const MONSTER_EYES = '#ffe14a'
+const SURVIVOR_EYES = '#ffffff'
+
+/** An entity with its fractional render position (own predicted character or an interpolated one). */
+type Positioned = EntityView & { readonly renderX: number; readonly renderY: number }
 
 interface LightingCache {
   key: string
   brightness: Float32Array
 }
 
-/** Converts map coordinates to grid cells for the current frame. */
+/** World (cell) coordinates → screen grid cells for the current frame. */
 interface View {
-  column(x: number): number
-  row(y: number): number
+  readonly originX: number
+  readonly originY: number
+  column(worldCellX: number): number
+  row(worldCellY: number): number
 }
 
-/** Draws the map, lighting, entities and effects for one frame, then the HUD and overlays. */
+/**
+ * Draws the world in "rich ASCII": each map tile is a TILE_W × TILE_H block of textured cells, characters are
+ * animated multi-cell sprites, and light is interpolated per cell. The camera follows the player smoothly and
+ * the view fills the whole screen.
+ */
 export class SceneRenderer {
   /** Dev aid (F4): draw bot paths and states when the server sends them. */
   showBotDebug = false
   private readonly grid: AsciiGrid
   private readonly effects: Effects
+  private readonly animator = new Animator()
   private lightingCache: LightingCache | null = null
-  /** Cells the local player has seen lit (drawn a little brighter than unexplored ones). */
+  /** Tiles the local player has seen lit (drawn a little brighter than unexplored ones). */
   private seen: Uint8Array | null = null
   private seenMap: TileMap | null = null
+  private lastOwnAttackCooldown = 0
 
   constructor(grid: AsciiGrid, effects: Effects) {
     this.grid = grid
     this.effects = effects
+  }
+
+  /** Subscribes to match events that drive animations (the monster's swipe). */
+  attach(game: ClientGame): void {
+    game.onGameEvent((event) => {
+      if (event.kind === 'hit') this.animator.markAttack(Number(event.data.attackerId), performance.now())
+    })
   }
 
   render(game: ClientGame, socket: GameSocket, now: number): void {
@@ -94,29 +118,39 @@ export class SceneRenderer {
   private renderWorld(game: ClientGame, map: TileMap, snapshot: SnapshotPayload, self: RenderEntity, now: number): void {
     const viewRows = Math.max(this.grid.rows - HUD_TOP_ROWS - HUD_BOTTOM_ROWS, 0)
     const shake = this.effects.shakeOffset(now)
-    const originX = viewportOrigin(Math.round(self.renderX), map.width, this.grid.columns) + shake.dx
-    const originY = viewportOrigin(Math.round(self.renderY), map.height, viewRows) + shake.dy
-    const view: View = { column: (x) => x - originX, row: (y) => y - originY + HUD_TOP_ROWS }
+    const focusX = Math.round(self.renderX * TILE_W + TILE_W / 2)
+    const focusY = Math.round(self.renderY * TILE_H + TILE_H / 2)
+    const originX = viewportOrigin(focusX, map.width * TILE_W, this.grid.columns) + shake.dx
+    const originY = viewportOrigin(focusY, map.height * TILE_H, viewRows) + shake.dy
+    const view: View = {
+      originX,
+      originY,
+      column: (x) => x - originX,
+      row: (y) => y - originY + HUD_TOP_ROWS,
+    }
 
     const brightness = this.lighting(game, map, snapshot, self)
     this.rememberSeen(map, brightness)
-    this.drawTiles(game, map, snapshot, brightness, originX, originY, viewRows, now)
+    this.drawTiles(game, map, snapshot, brightness, view, viewRows, now)
+    this.drawTrailsAndTraps(snapshot, view)
+    this.trackOwnAttack(snapshot, now)
 
-    for (const trail of snapshot.trails) {
-      this.grid.drawGlyph(view.column(trail.x), view.row(trail.y), TRAIL_GLYPH, scale(TRAIL_COLOR, 1.4 - trail.age))
-    }
-    for (const trap of snapshot.traps) this.grid.drawGlyph(view.column(trap.x), view.row(trap.y), TRAP_GLYPH, TRAP_COLOR)
-    for (const entity of game.others(now)) {
-      this.drawEntity(entity, view.column(entity.renderX), view.row(entity.renderY), now)
+    const others = game.others(now)
+    this.animator.forget(new Set([...others.map((e) => e.id), self.id]))
+    // Back to front: sprites lower on screen overlap the ones behind them.
+    const drawOrder = [...others, ...(snapshot.you.hidden ? [] : [self])].sort((a, b) => a.renderY - b.renderY)
+    for (const entity of drawOrder) {
+      this.drawEntity(entity, map, brightness, view, now, entity === self)
       if (entity.activity === 'repair') this.effects.sparkle(entity.x, entity.y, now)
     }
-    if (!snapshot.you.hidden) this.drawEntity(self, view.column(self.renderX), view.row(self.renderY), now)
-    if (snapshot.you.activity === 'repair') this.effects.sparkle(self.x, self.y, now)
+    if (snapshot.you.role === 'survivor') this.drawTeammateNames(others, view)
     this.drawSounds(snapshot, self, view)
     if (this.showBotDebug) this.drawBotDebug(snapshot, view)
     this.drawEffects(view, self, now)
     this.drawScreenTint(snapshot, now)
   }
+
+  // ------------------------------------------------------------------ lighting
 
   private lighting(game: ClientGame, map: TileMap, snapshot: SnapshotPayload, self: RenderEntity): Float32Array {
     const you = snapshot.you
@@ -153,69 +187,158 @@ export class SceneRenderer {
     for (let i = 0; i < brightness.length; i++) if (brightness[i] > 0) this.seen[i] = 1
   }
 
+  /** Light at a world cell, bilinearly interpolated between tile centres so it fades smoothly. */
+  private sampleLight(map: TileMap, brightness: Float32Array, cellX: number, cellY: number): number {
+    const fx = (cellX + 0.5) / TILE_W - 0.5
+    const fy = (cellY + 0.5) / TILE_H - 0.5
+    const x0 = Math.floor(fx)
+    const y0 = Math.floor(fy)
+    const tx = fx - x0
+    const ty = fy - y0
+    const at = (x: number, y: number) => (map.isInside(x, y) ? brightness[y * map.width + x] : 0)
+    const top = at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx
+    const bottom = at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx
+    return top * (1 - ty) + bottom * ty
+  }
+
+  // ------------------------------------------------------------------ world
+
   private drawTiles(
     game: ClientGame,
     map: TileMap,
     snapshot: SnapshotPayload,
     brightness: Float32Array,
-    originX: number,
-    originY: number,
+    view: View,
     viewRows: number,
     now: number,
   ): void {
     const tint = snapshot.you.role === 'monster' ? MONSTER_TINT : SURVIVOR_TINT
-    const generatorsByCell = new Map<number, GeneratorView>()
-    for (const generator of snapshot.generators) generatorsByCell.set(generator.y * map.width + generator.x, generator)
-    const gateOpen = game.match?.gateOpen ?? false
+    const generators = new Map<number, GeneratorView>()
+    for (const generator of snapshot.generators) generators.set(generator.y * map.width + generator.x, generator)
+    const state: TileArtState = { generators, gateOpen: game.match?.gateOpen ?? false, nowMs: now }
     const seen = this.seen!
+    const mapCellsX = map.width * TILE_W
+    const mapCellsY = map.height * TILE_H
 
     for (let row = 0; row < viewRows; row++) {
+      const cellY = view.originY + row
+      if (cellY < 0 || cellY >= mapCellsY) continue
+      const tileY = Math.floor(cellY / TILE_H)
       for (let column = 0; column < this.grid.columns; column++) {
-        const x = originX + column
-        const y = originY + row
-        if (!map.isInside(x, y)) continue
-        const index = y * map.width + x
-        const tile = map.tileAt(x, y)
-        let glyph = tile.glyph
-        let color = tile.color
-        if (tile.kind === 'generator') {
-          const generator = generatorsByCell.get(index)
-          if (generator?.done) {
-            glyph = GENERATOR_DONE_GLYPH
-            color = GENERATOR_DONE_COLOR
-          } else if (generator?.progress != null) {
-            color = mix(GENERATOR_IDLE_COLOR, GENERATOR_DONE_COLOR, generator.progress)
-          }
-        } else if (tile.kind === 'gate' && gateOpen) {
-          glyph = GATE_OPEN_GLYPHS[Math.floor(now / BLINK_MS) % GATE_OPEN_GLYPHS.length]
-          color = '#ffffff'
+        const cellX = view.originX + column
+        if (cellX < 0 || cellX >= mapCellsX) continue
+        const tileX = Math.floor(cellX / TILE_W)
+        const art = tileCellArt(map, tileX, tileY, cellX - tileX * TILE_W, cellY - tileY * TILE_H, state)
+        const light = this.sampleLight(map, brightness, cellX, cellY)
+        const screenRow = row + HUD_TOP_ROWS
+        if (art === VOID) continue
+        if (light > MIN_WASH_BRIGHTNESS) {
+          this.grid.fillCells(column, screenRow, 1, 1, scale(tint, light * LIGHT_WASH))
         }
-        const ambient = seen[index] ? AMBIENT_REMEMBERED : AMBIENT_UNSEEN
-        const gain = glyph === BLOCK_GLYPH ? BLOCK_LIGHT_GAIN : GLYPH_LIGHT_GAIN
-        this.grid.drawGlyph(column, row + HUD_TOP_ROWS, glyph, lit(color, tint, brightness[index], ambient, gain))
+        if (art.glyph === null || art.glyph === ' ') continue
+        const ambient = seen[tileY * map.width + tileX] ? AMBIENT_REMEMBERED : AMBIENT_UNSEEN
+        const gain = art.solid ? BLOCK_LIGHT_GAIN : GLYPH_LIGHT_GAIN
+        this.grid.drawGlyph(column, screenRow, art.glyph, lit(art.color, tint, light, ambient, gain))
       }
     }
   }
 
-  private drawEntity(entity: Drawable, column: number, row: number, now: number): void {
-    let color = entity.color
-    if (entity.health === 'injured' && Math.floor(now / BLINK_MS) % 2 === 0) color = INJURED_COLOR
-    if (entity.health === 'downed') color = DOWNED_COLOR
-    this.grid.drawGlyph(column, row, entity.glyph, color)
+  private drawTrailsAndTraps(snapshot: SnapshotPayload, view: View): void {
+    for (const trail of snapshot.trails) {
+      const color = scale(TRAIL_COLOR, 1.5 - trail.age)
+      const x = trail.x * TILE_W
+      const y = trail.y * TILE_H + TILE_H - 1
+      this.grid.drawGlyph(view.column(x + 1), view.row(y), ',', color)
+      this.grid.drawGlyph(view.column(x + 3), view.row(y - 1), '.', color)
+    }
+    for (const trap of snapshot.traps) {
+      const x = trap.x * TILE_W + 1
+      const y = trap.y * TILE_H + TILE_H - 1
+      this.grid.drawText(view.column(x), view.row(y), TRAP_ART, TRAP_COLOR)
+    }
   }
+
+  // ------------------------------------------------------------------ characters
+
+  /** Our own swing: the attack cooldown jumping up means we just attacked. */
+  private trackOwnAttack(snapshot: SnapshotPayload, now: number): void {
+    const cooldown = snapshot.you.cooldowns.attackMs
+    if (snapshot.you.role === 'monster' && cooldown > this.lastOwnAttackCooldown) {
+      this.animator.markAttack(snapshot.you.id, now)
+    }
+    this.lastOwnAttackCooldown = cooldown
+  }
+
+  private drawEntity(
+    entity: Positioned,
+    map: TileMap,
+    brightness: Float32Array,
+    view: View,
+    now: number,
+    isSelf: boolean,
+  ): void {
+    const { animation, frame, facing } = this.animator.frame(entity, now)
+    const sprite = spriteFrame(animation, frame, facing)
+    const feetX = Math.round(entity.renderX * TILE_W + Math.floor(TILE_W / 2))
+    const feetY = Math.round(entity.renderY * TILE_H + TILE_H - 1)
+    const light = isSelf ? 1 : Math.max(ENTITY_MIN_BRIGHTNESS, this.sampleLight(map, brightness, feetX, feetY))
+    const body = this.bodyColor(entity, now)
+    for (const cell of sprite.cells) {
+      const color = scale(this.maskColor(cell.mask, body, entity.kind), light)
+      this.grid.drawGlyph(view.column(feetX + cell.dx), view.row(feetY + cell.dy), cell.glyph, color)
+    }
+  }
+
+  private bodyColor(entity: EntityView, now: number): string {
+    if (entity.health === 'downed') return scale(entity.color, DOWNED_FACTOR)
+    if (entity.health === 'injured' && Math.floor(now / BLINK_MS) % 2 === 0) return mix(entity.color, INJURED_COLOR, 0.7)
+    return entity.color
+  }
+
+  private maskColor(mask: MaskKey, body: string, kind: EntityView['kind']): string {
+    switch (mask) {
+      case 'b':
+        return body
+      case 'd':
+        return scale(body, 0.62)
+      case 'h':
+        return kind === 'survivor' ? mix(body, SKIN, 0.55) : scale(body, 0.8)
+      case 'e':
+        return kind === 'monster' ? MONSTER_EYES : SURVIVOR_EYES
+      default:
+        return MASK_COLORS[mask]
+    }
+  }
+
+  private drawTeammateNames(others: readonly Positioned[], view: View): void {
+    for (const entity of others) {
+      if (entity.kind !== 'survivor') continue
+      const label = entity.name.replace(' (bot)', '')
+      const x = Math.round(entity.renderX * TILE_W + TILE_W / 2) - Math.floor(label.length / 2)
+      const y = Math.round(entity.renderY * TILE_H) - 1
+      this.grid.drawText(view.column(x), view.row(y), label, NAME_COLOR)
+    }
+  }
+
+  // ------------------------------------------------------------------ overlays in the world
 
   /** The monster hears noises as arcs around itself, pointing towards the source: `)))`. */
   private drawSounds(snapshot: SnapshotPayload, self: RenderEntity, view: View): void {
+    const centerX = self.renderX * TILE_W + TILE_W / 2
+    const centerY = self.renderY * TILE_H + TILE_H / 2
     for (const sound of snapshot.sounds) {
       const color = scale(SOUND_COLORS[sound.kind] ?? '#ffffff', 0.4 + sound.intensity * 0.6)
       const horizontal = Math.abs(sound.dx) >= Math.abs(sound.dy)
       const glyph = horizontal ? (sound.dx > 0 ? ')' : '(') : sound.dy > 0 ? 'v' : '^'
       const arcs = Math.max(1, Math.round(sound.intensity * 3))
       for (let arc = 0; arc < arcs; arc++) {
-        const distance = SOUND_RING_RADIUS + arc
-        const x = Math.round(self.renderX + sound.dx * distance)
-        const y = Math.round(self.renderY + sound.dy * distance * 0.6)
-        this.grid.drawGlyph(view.column(x), view.row(y), glyph, color)
+        const distance = SOUND_RING_TILES + arc * 0.6
+        const x = Math.round(centerX + sound.dx * distance * TILE_W)
+        const y = Math.round(centerY + sound.dy * distance * TILE_H)
+        // Each arc is three glyphs wide, perpendicular to the direction, like `)` stacked.
+        for (let spread = -1; spread <= 1; spread++) {
+          this.grid.drawGlyph(view.column(x + (horizontal ? 0 : spread)), view.row(y + (horizontal ? spread : 0)), glyph, color)
+        }
       }
     }
   }
@@ -223,26 +346,31 @@ export class SceneRenderer {
   private drawBotDebug(snapshot: SnapshotPayload, view: View): void {
     for (const bot of snapshot.bots ?? []) {
       bot.path.forEach((cell, index) => {
-        if (index > 0) this.grid.drawGlyph(view.column(cell.x), view.row(cell.y), '∙', BOT_DEBUG_COLOR)
+        if (index === 0) return
+        this.grid.drawGlyph(view.column(cell.x * TILE_W + 2), view.row(cell.y * TILE_H + 1), '∙', BOT_DEBUG_COLOR)
       })
       const head = bot.path[0]
-      if (head) this.grid.drawText(view.column(head.x) + 1, view.row(head.y) - 1, `#${bot.id} ${bot.state}`, BOT_DEBUG_COLOR)
+      if (head) {
+        this.grid.drawText(view.column(head.x * TILE_W + 3), view.row(head.y * TILE_H - 2), `#${bot.id} ${bot.state}`, BOT_DEBUG_COLOR)
+      }
     }
   }
 
   private drawEffects(view: View, self: RenderEntity, now: number): void {
     for (const particle of this.effects.particles) {
       const { x, y, life } = this.effects.particlePosition(particle, now)
-      this.grid.drawGlyph(view.column(x), view.row(y), particle.glyph, scale(particle.color, 0.4 + 0.6 * life))
+      const column = view.column(Math.round(x * TILE_W + TILE_W / 2))
+      const row = view.row(Math.round(y * TILE_H + TILE_H / 2))
+      this.grid.drawGlyph(column, row, particle.glyph, scale(particle.color, 0.4 + 0.6 * life))
     }
     const sonar = this.effects.sonarRadius(now, GameRules.monster.sonarRadius)
     if (sonar === null) return
     const origin = this.effects.sonarOrigin ?? { x: self.x, y: self.y }
-    const points = Math.ceil(sonar * 6)
+    const points = Math.ceil(sonar * 14)
     for (let i = 0; i < points; i++) {
       const angle = (i / points) * Math.PI * 2
-      const x = Math.round(origin.x + Math.cos(angle) * sonar)
-      const y = Math.round(origin.y + Math.sin(angle) * sonar * 0.6)
+      const x = Math.round((origin.x + 0.5 + Math.cos(angle) * sonar) * TILE_W)
+      const y = Math.round((origin.y + 0.5 + Math.sin(angle) * sonar) * TILE_H)
       this.grid.drawGlyph(view.column(x), view.row(y), '·', SONAR_COLOR)
     }
   }

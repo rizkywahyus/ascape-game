@@ -1,6 +1,6 @@
 import { GlyphAtlas } from './glyphAtlas'
 
-const LINE_HEIGHT_RATIO = 1.2
+export const LINE_HEIGHT_RATIO = 1.2
 const CELL_MEASURE_GLYPH = 'M'
 
 /**
@@ -13,7 +13,7 @@ export class AsciiGrid {
   private readonly canvas: HTMLCanvasElement
   private readonly context: CanvasRenderingContext2D
   private readonly fontFamily: string
-  private readonly fontSizeCss: number
+  private fontSizeCss: number
   private cellWidth = 0
   private cellHeight = 0
   private atlas: GlyphAtlas | null = null
@@ -26,6 +26,13 @@ export class AsciiGrid {
     this.context = context
     this.fontFamily = fontFamily
     this.fontSizeCss = fontSizeCss
+  }
+
+  /** Changes the glyph size; takes effect on the next resize(). */
+  setFontSize(fontSizeCss: number): void {
+    if (fontSizeCss === this.fontSizeCss) return
+    this.fontSizeCss = fontSizeCss
+    this.atlasPixelRatio = 0 // forces the atlas to be rebuilt at the new size
   }
 
   /** Recomputes the grid to fill `widthCss` × `heightCss`. Call on window resize. */

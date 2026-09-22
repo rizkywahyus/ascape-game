@@ -7,7 +7,7 @@ players who drop out.
 
 ![Survivor view with the netcode overlay](docs/screenshots/survivor.png)
 
-| Monster view (red dark-vision, repaired generator `[■]`) | Menu |
+| Monster view (red dark-vision) | Menu |
 |---|---|
 | ![Monster view](docs/screenshots/monster.png) | ![Menu](docs/screenshots/menu.png) |
 
@@ -23,8 +23,11 @@ players who drop out.
   FSM (patrol → investigate → chase → search) and survivor utility AI (repair, flee out of sight, hide, revive,
   heal, escape), with reaction delay and difficulty levels.
 - **Matchmaking** with role preference, bot fill, drop-in over bots and 30 s reconnect grace.
-- **ASCII renderer** on canvas with a glyph atlas, per-cell lighting and fog, sound arcs `)))`, particles, screen
-  shake, heartbeat vignette, synthesised WebAudio and an optional CRT look.
+- **Rich ASCII renderer** on canvas with a glyph atlas: every map tile is a 5×3 block of textured characters, and
+  characters are animated multi-cell sprites (a running survivor, a hunched ghoul with glowing eyes and claws)
+  defined in a plain-text sprite sheet ([`sprites.txt`](client/src/render/sprites/sprites.txt)) with colour masks
+  and automatic mirroring. Smooth per-cell lighting, fog, sound arcs `)))`, particles, screen shake, heartbeat
+  vignette, synthesised WebAudio, fullscreen and an optional CRT look.
 - **Supabase** auth (JWT verified against JWKS, guest + magic link) and Postgres persistence through a least-privilege
   role and an async write queue that never touches the game loop.
 
@@ -158,7 +161,7 @@ Esc menu · M sound · F2 CRT · F3 netcode overlay · F4 bot debug view (if ena
 
 ```bash
 cd server && ./mvnw verify          # 67 tests: simulation, visibility, bots, protocol, auth, backpressure
-cd client && npm test && npm run build   # 28 tests: movement parity, prediction, interpolation, lighting
+cd client && npm test && npm run build   # 35 tests: movement parity, prediction, interpolation, lighting, sprites
 cd loadtest && npm install && node loadtest.mjs --clients 100 --seconds 30
 ```
 
