@@ -132,6 +132,9 @@ Without `VITE_SUPABASE_*` the client skips sign-in and plays as a guest, which n
 `AUTH_ALLOW_UNAUTHENTICATED=true` on the server. Or everything in Docker: `docker compose up --build`
 (client on :8081).
 
+To play from a phone on the same Wi-Fi, `scripts/dev-lan.sh` starts both (guest mode, nothing saved) and prints
+`http://<laptop-ip>:5173`; `--auth` uses the Supabase settings from `.env` instead. Ctrl+C stops both.
+
 ### Configuration (server)
 
 | Env var | Default | Purpose |
