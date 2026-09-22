@@ -1,0 +1,164 @@
+{
+  "description": "Movement parity cases run by both server (MovementParityTest) and client (movement.test.ts). Each input is one tick.",
+  "legend": {
+    "#": "solid",
+    ".": "floor"
+  },
+  "cases": [
+    {
+      "name": "walk right from rest",
+      "map": [
+        "#########",
+        "#.......#",
+        "#########"
+      ],
+      "tickRate": 20,
+      "start": {
+        "x": 1,
+        "y": 1,
+        "progress": 1.0
+      },
+      "inputs": [
+        {
+          "dx": 1,
+          "dy": 0,
+          "speed": 5.5,
+          "repeat": 10
+        }
+      ],
+      "expected": {
+        "x": 4,
+        "y": 1,
+        "progress": 0.75
+      }
+    },
+    {
+      "name": "sprint then stop against wall",
+      "map": [
+        "######",
+        "#....#",
+        "######"
+      ],
+      "tickRate": 20,
+      "start": {
+        "x": 1,
+        "y": 1,
+        "progress": 0.0
+      },
+      "inputs": [
+        {
+          "dx": 1,
+          "dy": 0,
+          "speed": 8.5,
+          "repeat": 30
+        }
+      ],
+      "expected": {
+        "x": 4,
+        "y": 1,
+        "progress": 1.0
+      }
+    },
+    {
+      "name": "diagonal slides along wall",
+      "map": [
+        "#####",
+        "#...#",
+        "#...#",
+        "#####"
+      ],
+      "tickRate": 20,
+      "start": {
+        "x": 1,
+        "y": 1,
+        "progress": 1.0
+      },
+      "inputs": [
+        {
+          "dx": 1,
+          "dy": -1,
+          "speed": 6.5,
+          "repeat": 1
+        }
+      ],
+      "expected": {
+        "x": 2,
+        "y": 1,
+        "progress": 0.325
+      }
+    },
+    {
+      "name": "no corner cutting",
+      "map": [
+        "####",
+        "#.##",
+        "##.#",
+        "####"
+      ],
+      "tickRate": 20,
+      "start": {
+        "x": 1,
+        "y": 1,
+        "progress": 1.0
+      },
+      "inputs": [
+        {
+          "dx": 1,
+          "dy": 1,
+          "speed": 5.5,
+          "repeat": 3
+        }
+      ],
+      "expected": {
+        "x": 1,
+        "y": 1,
+        "progress": 1.0
+      }
+    },
+    {
+      "name": "tapping cannot outrun holding",
+      "map": [
+        "#######",
+        "#.....#",
+        "#######"
+      ],
+      "tickRate": 20,
+      "start": {
+        "x": 1,
+        "y": 1,
+        "progress": 0.0
+      },
+      "inputs": [
+        {
+          "dx": 0,
+          "dy": 0,
+          "speed": 5.5,
+          "repeat": 40
+        },
+        {
+          "dx": 1,
+          "dy": 0,
+          "speed": 5.5,
+          "repeat": 1
+        },
+        {
+          "dx": 0,
+          "dy": 0,
+          "speed": 5.5,
+          "repeat": 1
+        },
+        {
+          "dx": 1,
+          "dy": 0,
+          "speed": 5.5,
+          "repeat": 1
+        }
+      ],
+      "expected": {
+        "x": 2,
+        "y": 1,
+        "progress": 0.825
+      }
+    }
+  ]
+}

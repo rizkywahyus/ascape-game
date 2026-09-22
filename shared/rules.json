@@ -1,0 +1,67 @@
+{
+  "tickRate": 20,
+  "match": {
+    "lobbyCountdownSeconds": 15,
+    "fullLobbyCountdownSeconds": 3,
+    "durationSeconds": 480,
+    "endgameCollapseSeconds": 90,
+    "resultSeconds": 12,
+    "generatorsNeeded": 5,
+    "survivorSlots": 4
+  },
+  "survivor": {
+    "walkSpeed": 5.5,
+    "sprintSpeed": 8.5,
+    "hitBoostSpeed": 9.5,
+    "hitBoostSeconds": 2.5,
+    "downedCrawlSpeed": 1.0,
+    "staminaMax": 100,
+    "sprintDrainPerSecond": 22,
+    "staminaRegenPerSecond": 16,
+    "staminaRegenDelaySeconds": 0.8,
+    "bleedOutSeconds": 45,
+    "reviveSeconds": 4,
+    "healSeconds": 8,
+    "repairSecondsSolo": 32,
+    "extraRepairerEfficiency": 0.8,
+    "flashlightRadius": 8,
+    "darkRadius": 3,
+    "rocks": 2,
+    "rockThrowDistance": 8,
+    "senseMonsterRadius": 2
+  },
+  "monster": {
+    "walkSpeed": 5.8,
+    "attackRange": 1,
+    "attackCooldownSeconds": 2.6,
+    "attackSlowSeconds": 1.8,
+    "attackSlowSpeed": 2.5,
+    "visionRadius": 8,
+    "lightSpotRadius": 12,
+    "trailSpotRadius": 10,
+    "lungeSpeed": 9.5,
+    "lungeSeconds": 1.2,
+    "lungeCooldownSeconds": 10,
+    "sonarRadius": 24,
+    "sonarSeconds": 2.5,
+    "sonarCooldownSeconds": 45,
+    "maxTraps": 3,
+    "trapCooldownSeconds": 6,
+    "trapStunSeconds": 3,
+    "terrorRadius": 16,
+    "hearingRadius": 22,
+    "catchSeconds": 2.0
+  },
+  "sound": {
+    "sprintRadius": 9,
+    "repairRadius": 8,
+    "lockerRadius": 10,
+    "rockRadius": 16,
+    "trapRadius": 22,
+    "hitRadius": 16,
+    "lifetimeSeconds": 1.5
+  },
+  "trail": {
+    "lifetimeSeconds": 3
+  }
+}

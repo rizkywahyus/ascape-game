@@ -1,0 +1,65 @@
+{
+  "#": {
+    "kind": "wall",
+    "solid": true,
+    "opaque": true,
+    "glyph": "█",
+    "color": "#3a3a44"
+  },
+  ".": {
+    "kind": "floor",
+    "solid": false,
+    "opaque": false,
+    "glyph": "·",
+    "color": "#2a2a33"
+  },
+  "S": {
+    "kind": "survivorSpawn",
+    "solid": false,
+    "opaque": false,
+    "glyph": "·",
+    "color": "#2a2a33"
+  },
+  "M": {
+    "kind": "monsterSpawn",
+    "solid": false,
+    "opaque": false,
+    "glyph": "·",
+    "color": "#2a2a33"
+  },
+  "[": {
+    "kind": "generatorFrame",
+    "solid": true,
+    "opaque": false,
+    "glyph": "[",
+    "color": "#6a5a30"
+  },
+  "]": {
+    "kind": "generatorFrame",
+    "solid": true,
+    "opaque": false,
+    "glyph": "]",
+    "color": "#6a5a30"
+  },
+  "G": {
+    "kind": "generator",
+    "solid": true,
+    "opaque": false,
+    "glyph": "≡",
+    "color": "#e0b030"
+  },
+  "E": {
+    "kind": "gate",
+    "solid": true,
+    "opaque": true,
+    "glyph": "▓",
+    "color": "#8a8a94"
+  },
+  "L": {
+    "kind": "locker",
+    "solid": true,
+    "opaque": false,
+    "glyph": "▯",
+    "color": "#8b5a2b"
+  }
+}
