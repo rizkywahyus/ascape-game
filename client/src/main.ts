@@ -148,6 +148,7 @@ async function start(): Promise<void> {
       if (presses.has(ZOOM_OUT_KEY)) zoom(-1)
       if (presses.has(ZOOM_IN_KEY)) zoom(1)
       session.game.queuePresses(presses)
+      session.game.perf.recordFrame(now)
       session.game.update(now - previousTime, now)
       audio.update(session.game, now)
       renderer.render(session.game, session.socket, now)

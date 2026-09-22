@@ -17,6 +17,7 @@ import { SnapshotBuffer, type InterpolatedEntity } from './interpolation'
 import type { IsWalkable } from './movement'
 import { PredictedCharacter } from './prediction'
 import { GameRules } from './rules'
+import { PerfStats } from './perfStats'
 import { TileMap } from './tileMap'
 
 /** Remote entities are drawn this far in the past so there are two snapshots to interpolate between. */
@@ -73,6 +74,7 @@ export class ClientGame {
   predicted: PredictedCharacter | null = null
   buffer = new SnapshotBuffer(GameRules.tickRate, INTERPOLATION_DELAY_MS)
   feed: FeedLine[] = []
+  readonly perf = new PerfStats()
   /** Local clock (performance.now) when `match.timeLeftMs` was received. */
   matchReceivedAtMs = 0
   lobbyReceivedAtMs = 0
@@ -253,6 +255,7 @@ export class ClientGame {
   private onSnapshot(snapshot: SnapshotPayload): void {
     if (this.phase !== 'playing' || (this.latest && snapshot.tick <= this.latest.tick)) return
     const nowMs = performance.now()
+    this.perf.recordSnapshot(nowMs)
     const previousSelf = this.latest?.you
     this.latest = snapshot
     this.buffer.push(snapshot.tick, snapshot.entities, nowMs)

@@ -28,9 +28,11 @@ const GATE_LIGHT_RADIUS = 3
 /** Entities the server lets us see but that stand in darkness (teammate aura, sonar) are drawn dimmer. */
 const ENTITY_MIN_BRIGHTNESS = 0.5
 const BLINK_MS = 400
-/** Rigs are authored for 20-pixel-wide tiles; scale them with the tile size. Survivors a bit larger to read well. */
-const RIG_SCALE = TILE_W / 20
-const SURVIVOR_SCALE = 1.3
+/**
+ * Rig units → scene pixels. At 0.9 a survivor stands ≈ 1.3 tiles tall and the monster ≈ 1.9, so characters read
+ * as smaller than the walls around them.
+ */
+const RIG_SCALE = 0.9
 const INJURED_COLOR = '#e74c3c'
 const TRAIL_RGB = [150, 20, 12] as const
 const TRAP_RGB = [230, 60, 45] as const
@@ -76,6 +78,7 @@ export class SceneRenderer {
   private readonly scene = document.createElement('canvas')
   private readonly sceneContext: CanvasRenderingContext2D
   private readonly lightCanvas = document.createElement('canvas')
+  private lightImage: ImageData | null = null
   private readonly animator = new Animator()
   private mapBase: { map: TileMap; canvas: HTMLCanvasElement } | null = null
   private lightingCache: LightingCache | null = null
@@ -126,6 +129,8 @@ export class SceneRenderer {
     const snapshot = game.latest
     const self = game.self(now)
     if (map && snapshot && self && game.phase === 'playing') this.paintWorld(game, map, snapshot, self, now)
+    // Build the map texture while waiting in the lobby, not on the match's first frame (a visible hitch).
+    else if (map) this.baseFor(map)
     this.shader?.draw(this.scene)
     renderHud(this.hud, game, socket, now)
     renderOverlays(this.hud, game, now)
@@ -214,12 +219,13 @@ export class SceneRenderer {
    */
   private applyLight(map: TileMap, brightness: Float32Array, role: string, view: View): void {
     const light = this.lightCanvas
-    if (light.width !== map.width || light.height !== map.height) {
+    const lightContext = light.getContext('2d')!
+    if (light.width !== map.width || light.height !== map.height || !this.lightImage) {
       light.width = map.width
       light.height = map.height
+      this.lightImage = lightContext.createImageData(map.width, map.height) // reused every frame: no GC churn
     }
-    const lightContext = light.getContext('2d')!
-    const image = lightContext.createImageData(map.width, map.height)
+    const image = this.lightImage
     const tint = role === 'monster' ? MONSTER_TINT : SURVIVOR_TINT
     const seen = this.seen!
     for (let i = 0; i < brightness.length; i++) {
@@ -293,8 +299,7 @@ export class SceneRenderer {
     context.globalAlpha = isSelf
       ? 1
       : Math.max(ENTITY_MIN_BRIGHTNESS, Math.min(1, this.lightAt(map, brightness, entity.x, entity.y) * LIGHT_BOOST))
-    const scale = entity.kind === 'survivor' ? RIG_SCALE * SURVIVOR_SCALE : RIG_SCALE
-    withRigTransform(context, feetX, feetY, facing, scale, this.cellAspect(), () => {
+    withRigTransform(context, feetX, feetY, facing, RIG_SCALE, this.cellAspect(), () => {
       if (entity.kind === 'monster') drawMonster(context, pose, phase)
       else drawSurvivor(context, pose, phase, {
         body: this.bodyColor(entity, now),

@@ -35,6 +35,9 @@ export class DebugOverlay {
       `│ server       ${pad(server ? `${server.x},${server.y}` : '-')}│`,
       `│ corrections  ${pad(String(game.predicted?.corrections ?? 0))}│`,
       `│ download     ${pad(`${(this.bytesPerSecond / 1024).toFixed(1)} KB/s`)}│`,
+      `│ fps          ${pad(game.perf.fps().toFixed(0))}│`,
+      `│ worst frame  ${pad(`${game.perf.worstFrameMs().toFixed(0)} ms (5s)`)}│`,
+      `│ worst snap   ${pad(`${game.perf.worstSnapshotGapMs().toFixed(0)} ms (5s)`)}│`,
       '└────────────────────────────────┘',
     ]
     const width = [...lines[0]].length
