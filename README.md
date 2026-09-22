@@ -195,8 +195,12 @@ the netcode is identical. Landscape recommended.
 
 ```bash
 cd server && ./mvnw verify          # 77 tests: simulation, visibility, bots, protocol, auth, backpressure
-cd client && npm test && npm run build   # 37 tests: movement parity, prediction, interpolation, lighting, animation
+cd client && npm test && npm run build   # 42 tests: movement parity, prediction, interpolation, lighting, animation, touch stick
 cd loadtest && npm install && node loadtest.mjs --clients 100 --seconds 30
 ```
 
 CI runs both suites on every push ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
+## License
+
+[MIT](LICENSE)
