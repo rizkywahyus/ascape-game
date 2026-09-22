@@ -52,6 +52,10 @@ export class Animator {
     if (motion) motion.attackUntilMs = nowMs + ATTACK_POSE_MS
   }
 
+  facing(entityId: number): Facing {
+    return this.motion.get(entityId)?.facing ?? 1
+  }
+
   forget(activeIds: ReadonlySet<number>): void {
     for (const id of this.motion.keys()) if (!activeIds.has(id)) this.motion.delete(id)
   }

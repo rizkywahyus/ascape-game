@@ -19,7 +19,8 @@ public record GameRules(int tickRate, MatchRules match, SurvivorRules survivor, 
 			int senseMonsterRadius) {
 	}
 
-	public record MonsterRules(double walkSpeed, int attackRange, double attackCooldownSeconds,
+	public record MonsterRules(double walkSpeed, int attackRange, double attackHitCooldownSeconds,
+			double attackMissCooldownSeconds,
 			double attackSlowSeconds, double attackSlowSpeed, double catchSeconds, int visionRadius, int lightSpotRadius,
 			int trailSpotRadius, double lungeSpeed, double lungeSeconds, double lungeCooldownSeconds, int sonarRadius,
 			double sonarSeconds, double sonarCooldownSeconds, int maxTraps, double trapCooldownSeconds,

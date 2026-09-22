@@ -1,4 +1,4 @@
-import type { KeyboardInput } from '../input/keyboard'
+import { MOUSE_LEFT, type KeyboardInput } from '../input/keyboard'
 import {
   Actions,
   type Action,
@@ -30,6 +30,8 @@ const ACTION_KEYS: Record<Role, Record<string, Action>> = {
   survivor: { KeyF: Actions.flashlight, KeyQ: Actions.throw, Space: Actions.skillCheck },
   monster: {
     Space: Actions.attack,
+    KeyJ: Actions.attack,
+    [MOUSE_LEFT]: Actions.attack,
     ShiftLeft: Actions.lunge,
     ShiftRight: Actions.lunge,
     KeyR: Actions.sonar,
@@ -84,6 +86,10 @@ export class ClientGame {
   private readonly pendingActions = new Set<Action>()
   private nextSeq = 1
   private tickAccumulatorMs = 0
+  /** Until when (local clock) our own swing slows us, predicted the moment we attack instead of a round trip later. */
+  private predictedSlowUntilMs = 0
+  /** Local clock of the last attack press that could not swing yet, for the HUD's "recharging" hint. */
+  rejectedAttackAtMs = -Infinity
   private glideFrom: { x: number; y: number } | null = null
   private glideStartMs = 0
 
@@ -130,10 +136,15 @@ export class ClientGame {
   queuePresses(codes: ReadonlySet<string>): void {
     const role = this.role()
     if (!role) return
+    const now = performance.now()
     for (const code of codes) {
       const action = ACTION_KEYS[role][code]
       if (!action) continue
       this.pendingActions.add(action)
+      if (action === Actions.attack) {
+        if (this.attackReady(now)) this.predictedSlowUntilMs = now + GameRules.monster.attackSlowSeconds * 1000
+        else this.rejectedAttackAtMs = now
+      }
       this.localActionListeners.forEach((listener) => listener(action, this))
     }
   }
@@ -200,7 +211,8 @@ export class ClientGame {
     })
     if (!sent || !this.predicted) return
     const moving = direction.dx !== 0 || direction.dy !== 0
-    const speed = sprint && moving ? you.sprintSpeed : you.moveSpeed
+    const slowed = you.role === 'monster' && nowMs < this.predictedSlowUntilMs
+    const speed = slowed ? GameRules.monster.attackSlowSpeed : sprint && moving ? you.sprintSpeed : you.moveSpeed
     const before = this.predicted.state.position
     this.predicted.applyLocal(seq, direction, speed, this.isWalkable, !you.canMove)
     this.startGlideIfMoved(before, nowMs)

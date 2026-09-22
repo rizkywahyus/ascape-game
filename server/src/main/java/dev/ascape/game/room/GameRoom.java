@@ -1,11 +1,9 @@
 package dev.ascape.game.room;
 
 import java.time.Instant;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,8 +58,6 @@ public final class GameRoom {
 	}
 
 	public static final int CAPACITY = 5;
-	/** Inputs older than this many ticks are dropped so a lagging client cannot bank movement. */
-	static final int MAX_PENDING_INPUTS = 6;
 
 	private static final Logger log = LoggerFactory.getLogger(GameRoom.class);
 	private static final double STATUS_BROADCAST_SECONDS = 1.0;
@@ -91,8 +87,7 @@ public final class GameRoom {
 	}
 
 	private static final class HumanControl implements Controller {
-		final Deque<PlayerInput> pending = new ArrayDeque<>();
-		long lastAppliedSeq;
+		final InputQueue inputs = new InputQueue();
 	}
 
 	private record BotControl(Bot bot) implements Controller {
@@ -313,17 +308,8 @@ public final class GameRoom {
 				|| !(controllers.get(member.actorId) instanceof HumanControl control)) {
 			return;
 		}
-		PlayerInput playerInput = new PlayerInput(input.seq(), input.dx(), input.dy(), input.sprint(),
-				input.interact(), input.actions(), input.viewTick());
-		boolean stale = playerInput.seq() <= control.lastAppliedSeq
-				|| (!control.pending.isEmpty() && playerInput.seq() <= control.pending.peekLast().seq());
-		if (stale) {
-			return;
-		}
-		control.pending.addLast(playerInput);
-		while (control.pending.size() > MAX_PENDING_INPUTS) {
-			control.pending.removeFirst();
-		}
+		control.inputs.add(new PlayerInput(input.seq(), input.dx(), input.dy(), input.sprint(), input.interact(),
+				input.actions(), input.viewTick()));
 	}
 
 	// ---------------------------------------------------------------- lobby
@@ -434,11 +420,10 @@ public final class GameRoom {
 			Actor actor = match.actor(actorId).orElseThrow();
 			PlayerInput input = switch (controller) {
 				case HumanControl human -> {
-					PlayerInput next = human.pending.pollFirst();
+					PlayerInput next = human.inputs.poll();
 					if (next == null) {
 						yield null;
 					}
-					human.lastAppliedSeq = next.seq();
 					// A snapshot labelled room tick R shows match tick R - offset + 1 (the match ticked before sending).
 					yield next.viewTick() > 0 ? next.withViewTick(next.viewTick() - roomToMatchTicks + 1) : next;
 				}
@@ -487,7 +472,7 @@ public final class GameRoom {
 			}
 			boolean ownActor = member.actorId != null && member.actorId == viewer.get().id();
 			long ackSeq = ownActor && controllers.get(member.actorId) instanceof HumanControl human
-					? human.lastAppliedSeq : 0;
+					? human.inputs.lastAppliedSeq() : 0;
 			member.connection.send(SnapshotBuilder.build(match, viewer.get(), tick, ackSeq, !ownActor, botDebug));
 		}
 	}

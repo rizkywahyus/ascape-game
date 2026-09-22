@@ -7,6 +7,9 @@ const RIGHT_KEYS = ['KeyD', 'ArrowRight']
 const SPRINT_KEYS = ['ShiftLeft', 'ShiftRight']
 const INTERACT_KEYS = ['KeyE']
 
+/** Pseudo key code reported by consumePresses() for a left mouse click. */
+export const MOUSE_LEFT = 'MouseLeft'
+
 /** Keys whose browser default (scrolling) must be suppressed while playing. */
 const CAPTURED_KEYS = new Set([...UP_KEYS, ...DOWN_KEYS, ...LEFT_KEYS, ...RIGHT_KEYS, 'Space', 'F2', 'F3', 'F4', 'Minus', 'Equal'])
 
@@ -25,6 +28,11 @@ export class KeyboardInput {
       this.held.add(event.code)
     })
     target.addEventListener('keyup', (event) => this.held.delete(event.code))
+    // Left click counts as a press too (monster attack): some keyboards cannot register Space while two
+    // movement keys are held (key ghosting).
+    target.addEventListener('mousedown', (event) => {
+      if (this.enabled && event.button === 0) this.pressed.add(MOUSE_LEFT)
+    })
     // Keyup is never delivered once the window loses focus; drop everything so we don't keep walking.
     target.addEventListener('blur', () => this.held.clear())
   }

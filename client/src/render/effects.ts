@@ -18,6 +18,8 @@ const SONAR_MS = 1_500
 const PARTICLE_GLYPHS = ['*', '+', '·', '\'']
 const SPARK_COLORS = ['#ffd24a', '#fff2a8', '#f0a030']
 const SPARKLE_CHANCE_PER_FRAME = 0.02
+const SLASH_POINTS = 14
+const SLASH_COLOR = '#fff4e0'
 const SPARKLE_SPEED = 2
 const BURST_SPEED = 6
 
@@ -72,6 +74,24 @@ export class Effects {
     }
   }
 
+  /** A claw slash in front of the attacker, shown the instant the player swings. */
+  slash(x: number, y: number, facing: 1 | -1, now: number): void {
+    for (let i = 0; i < SLASH_POINTS; i++) {
+      const t = i / (SLASH_POINTS - 1)
+      const angle = -1.1 + t * 2.2
+      this.particles.push({
+        x: x + facing * (0.9 + Math.cos(angle) * 0.9),
+        y: y - 0.3 + Math.sin(angle) * 0.9,
+        vx: facing * 1.5,
+        vy: 0,
+        bornMs: now + t * 60,
+        lifeMs: 220,
+        glyph: '/',
+        color: SLASH_COLOR,
+      })
+    }
+  }
+
   /** Occasional sparks from generators being repaired (called every frame, so the chance is small). */
   sparkle(x: number, y: number, now: number): void {
     if (Math.random() < SPARKLE_CHANCE_PER_FRAME) this.spawn(x, y, now, 1, SPARKLE_SPEED)
@@ -95,6 +115,11 @@ export class Effects {
 
   update(now: number): void {
     this.particles = this.particles.filter((p) => now - p.bornMs < p.lifeMs)
+  }
+
+  /** Particles whose (possibly staggered) birth time has come. */
+  visibleParticles(now: number): readonly Particle[] {
+    return this.particles.filter((p) => now >= p.bornMs)
   }
 
   particlePosition(particle: Particle, now: number): { x: number; y: number; life: number } {

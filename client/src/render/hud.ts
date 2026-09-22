@@ -16,7 +16,7 @@ const PANEL = 'rgba(7, 7, 10, 0.8)'
 
 const HELP: Record<string, string> = {
   survivor: 'WASD move · Shift sprint · hold E: repair/revive/heal · E: locker · F light · Q rock · Space skill check',
-  monster: 'WASD move · Space attack · hold E: take downed · E: search locker · Shift lunge · R sonar · T trap',
+  monster: 'WASD move · Space/click attack · hold E: take downed · E: search locker · Shift lunge · R sonar · T trap',
   spectator: 'spectating · Esc menu',
 }
 
@@ -63,7 +63,7 @@ function renderBottomBar(grid: AsciiGrid, game: ClientGame, you: SelfState): voi
     grid.drawText(1, helpRow, HELP.spectator, Palette.hud)
     return
   }
-  if (you.role === 'monster') renderMonsterStatus(grid, you, statusRow)
+  if (you.role === 'monster') renderMonsterStatus(grid, you, statusRow, game)
   else renderSurvivorStatus(grid, you, statusRow)
   grid.drawText(1, helpRow, `${HELP[you.role]} · -/= zoom · M sound · Esc menu`, Palette.hud)
 }
@@ -93,7 +93,9 @@ const ACTIVITY_LABELS: Record<string, string> = {
   catch: 'taking',
 }
 
-function renderMonsterStatus(grid: AsciiGrid, you: SelfState, row: number): void {
+const REJECTED_HINT_MS = 600
+
+function renderMonsterStatus(grid: AsciiGrid, you: SelfState, row: number, game: ClientGame): void {
   const ability = (name: string, ms: number) => ({
     text: ms > 0 ? `${name} ${Math.ceil(ms / 1000)}s` : `${name} ready`,
     color: ms > 0 ? Palette.hud : Palette.hudOk,
@@ -111,7 +113,10 @@ function renderMonsterStatus(grid: AsciiGrid, you: SelfState, row: number): void
   })
   if (you.activity === 'catch') {
     column = grid.drawText(column, row, ' · taking ', '#e74c3c')
-    grid.drawText(column, row, bar(you.activityProgress), '#e74c3c')
+    column = grid.drawText(column, row, bar(you.activityProgress), '#e74c3c')
+  }
+  if (performance.now() - game.rejectedAttackAtMs < REJECTED_HINT_MS) {
+    grid.drawText(column, row, '  ◄ recharging', '#e67e22')
   }
 }
 

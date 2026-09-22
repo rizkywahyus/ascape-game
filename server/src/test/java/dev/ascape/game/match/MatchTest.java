@@ -172,7 +172,7 @@ class MatchTest {
 		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK)));
 		assertThat(survivor.health()).isEqualTo(Health.INJURED);
 
-		tickFor(RULES.monster().attackCooldownSeconds(), Map.of());
+		tickFor(RULES.monster().attackHitCooldownSeconds(), Map.of());
 		place(survivor, 5, 7);
 		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK)));
 		assertThat(survivor.health()).isEqualTo(Health.DOWNED);
@@ -230,7 +230,7 @@ class MatchTest {
 		place(survivor, 9, 9);
 		place(monster, 5, 6);
 		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK))); // miss, cooldown starts
-		tickFor(RULES.monster().attackCooldownSeconds() - 0.2, Map.of());
+		tickFor(RULES.monster().attackMissCooldownSeconds() - 0.2, Map.of());
 		place(survivor, 5, 7);
 
 		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK))); // 0.2 s early
@@ -238,6 +238,30 @@ class MatchTest {
 		tickFor(0.25, Map.of());
 
 		assertThat(survivor.health()).as("the buffered swing lands").isEqualTo(Health.INJURED);
+	}
+
+	@Test
+	void attackWhileWalkingSwingsFromTheCellTheMonsterJustEntered() {
+		place(monster, 5, 5);
+		place(survivor, 7, 5); // two cells away before the step, adjacent after it
+
+		tick(Map.of(monster, input(1, 0, false, PlayerInput.ATTACK)));
+
+		assertThat(monster.position()).isEqualTo(new GridPos(6, 5));
+		assertThat(survivor.health()).isEqualTo(Health.INJURED);
+	}
+
+	@Test
+	void missRecoversFasterThanAHit() {
+		place(survivor, 9, 9);
+		place(monster, 5, 6);
+		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK)));
+		int afterMiss = monster.attackCooldownTicks();
+		tickFor(RULES.monster().attackMissCooldownSeconds() + 0.1, Map.of());
+		place(survivor, 5, 7);
+		tick(Map.of(monster, input(0, 0, false, PlayerInput.ATTACK)));
+
+		assertThat(monster.attackCooldownTicks()).isGreaterThan(afterMiss);
 	}
 
 	@Test

@@ -49,7 +49,7 @@ public final class Match {
 	static final int POSITION_HISTORY_TICKS = 8;
 	/** Furthest back an attack may be checked (300 ms at 20 Hz), so a lagging or lying client gains little. */
 	static final int MAX_REWIND_TICKS = 6;
-	private static final double ATTACK_BUFFER_SECONDS = 0.3;
+	private static final double ATTACK_BUFFER_SECONDS = 0.5;
 
 	private static final double REPAIR_SKILL_CHECK_PENALTY = 0.08;
 	private static final double REPAIR_SKILL_CHECK_BONUS = 0.02;
@@ -272,6 +272,12 @@ public final class Match {
 			boolean sprinted = input != null && canMove(actor) && applyMovement(actor, input);
 			updateStamina(actor, sprinted);
 		}
+		for (Actor actor : actors) {
+			PlayerInput input = inputs.get(actor.id);
+			if (input != null && actor.role == Role.MONSTER && input.has(PlayerInput.ATTACK)) {
+				requestAttack(actor, input);
+			}
+		}
 		applyChannelling(inputs);
 		updateTimers();
 		fireBufferedAttacks();
@@ -282,9 +288,7 @@ public final class Match {
 
 	private void applyActions(Actor actor, PlayerInput input) {
 		if (actor.role == Role.MONSTER) {
-			if (input.has(PlayerInput.ATTACK)) {
-				requestAttack(actor, input);
-			}
+			// Attacks resolve after movement (see tick()), matching the predicted position the player sees.
 			if (input.has(PlayerInput.LUNGE) && actor.lungeCooldownTicks == 0 && actor.attackSlowTicks == 0) {
 				actor.lungeTicks = rules.ticks(rules.monster().lungeSeconds());
 				actor.lungeCooldownTicks = rules.ticks(rules.monster().lungeCooldownSeconds());
@@ -331,7 +335,9 @@ public final class Match {
 	 */
 	private void attack(Actor monster, long viewTick) {
 		GameRules.MonsterRules rulesForMonster = rules.monster();
-		monster.attackCooldownTicks = rules.ticks(rulesForMonster.attackCooldownSeconds());
+		// A miss recovers quickly; a hit costs more (the swing follow-through). The slow is the same either way
+		// so the client can predict it the moment the player swings.
+		monster.attackCooldownTicks = rules.ticks(rulesForMonster.attackMissCooldownSeconds());
 		monster.attackSlowTicks = rules.ticks(rulesForMonster.attackSlowSeconds());
 		monster.attackBufferedUntilTick = -1;
 		monster.lungeTicks = 0;
@@ -359,6 +365,7 @@ public final class Match {
 	}
 
 	private void hit(Actor monster, Actor victim) {
+		monster.attackCooldownTicks = rules.ticks(rules.monster().attackHitCooldownSeconds());
 		monster.stats.hits++;
 		victim.stats.hitsTaken++;
 		emitSound(victim.position(), rules.sound().hitRadius(), "scream", -1);
@@ -423,7 +430,6 @@ public final class Match {
 				adjacentLocker(actor.position(), true).ifPresent(locker -> {
 					Actor found = locker.occupant;
 					leaveLocker(found);
-					actor.attackCooldownTicks = rules.ticks(rules.monster().attackCooldownSeconds());
 					hit(actor, found);
 				});
 			}

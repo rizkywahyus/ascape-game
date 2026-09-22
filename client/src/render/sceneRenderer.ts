@@ -99,7 +99,10 @@ export class SceneRenderer {
     game.onLocalAction((action, current) => {
       const now = performance.now()
       const you = current.latest?.you
-      if (action === Actions.attack && you && current.attackReady(now)) this.animator.markAttack(you.id, now)
+      if (action !== Actions.attack || !you || !current.attackReady(now)) return
+      this.animator.markAttack(you.id, now)
+      const self = current.self(now)
+      if (self) this.effects.slash(self.renderX, self.renderY, this.animator.facing(you.id), now)
     })
   }
 
@@ -337,7 +340,7 @@ export class SceneRenderer {
 
   private paintEffects(self: Positioned, toX: (x: number) => number, toY: (y: number) => number, now: number): void {
     const context = this.sceneContext
-    for (const particle of this.effects.particles) {
+    for (const particle of this.effects.visibleParticles(now)) {
       const { x, y, life } = this.effects.particlePosition(particle, now)
       const rgb = parseHex(particle.color)
       const fade = 0.4 + 0.6 * life

@@ -56,14 +56,17 @@ Related shared files:
   revive a downed teammate or heal an injured one; the monster carries off a downed survivor.
 - `actions`: one-shot presses this tick: `attack`, `flashlight`, `throw`, `ability:lunge`, `ability:sonar`,
   `ability:trap`, `skillcheck`. Unknown actions are ignored. An `attack` pressed while on cooldown is buffered and
-  fires automatically if the cooldown ends within 0.3 s.
+  fires automatically if the cooldown ends within 0.5 s. Attacks resolve after the tick's movement, from the cell
+  the monster just stepped into (what the player sees with prediction). A swing slows the monster for
+  `attackSlowSeconds` whether it hits or not, so the client can predict it; the cooldown is longer after a hit.
 - `viewTick` (optional): the snapshot tick the client was showing *other* characters at when the input was made
   (they are rendered in the past, interpolated). The server uses it for **lag compensation**: an attack is checked
   against where survivors were at that tick as well as where they are now. The rewind is capped at 6 ticks (300 ms).
 - The server consumes **at most one input per character per tick**, in `seq` order. A character with no pending
   input is not simulated that tick, so the server state after `ackSeq` is exactly what the client predicts after
-  applying inputs up to `ackSeq`. A backlog of more than 6 inputs is trimmed (oldest dropped); reconciliation
-  absorbs the difference.
+  applying inputs up to `ackSeq`. The backlog is capped at 3 inputs so a burst cannot leave every later press
+  permanently late; trimmed inputs lose their movement but their `actions` and held `interact` are merged into the
+  next input, so presses are never lost. Reconciliation absorbs the difference.
 
 ## Server → Client
 

@@ -64,8 +64,10 @@ Browser (Vite + TS)                     Spring Boot 4 (Java 21)                 
    server has not seen yet. Mismatches are counted in the F3 overlay.
 4. Other players are rendered 100 ms in the past, interpolated between snapshots on the server's timeline.
 5. **Lag compensation**: each input carries the tick the client was showing (`viewTick`), and the monster's attack
-   is checked against where survivors were at that tick as well as now (rewind capped at 300 ms). Early presses
-   during the cooldown are buffered. With 100 ms simulated latency, a scripted monster's hit rate on swings that
+   is checked against where survivors were at that tick as well as now (rewind capped at 300 ms), from the cell the
+   monster just stepped into. Early presses during the cooldown are buffered, the swing's slow is predicted on the
+   client, and the server's input backlog is capped at 3 with presses merged forward, so a network hiccup cannot
+   leave every later press late or drop it. With 100 ms simulated latency, a scripted monster's hit rate on swings that
    looked adjacent went from 45% (5/11) to 100% (8/8).
 
 Try it with artificial lag: `SIMULATED_LATENCY_MS=100` adds 100 ms each way on the server.
@@ -158,7 +160,7 @@ on a different origin than the server.
 |---|---|---|
 | Move | WASD / arrows, Shift sprint | WASD / arrows |
 | E | hold: repair, revive, heal · press: hide in / leave a locker | hold: carry off a downed survivor · press: search a locker |
-| Space | skill check | attack |
+| Space | skill check | attack (also left click or J) |
 | Other | F flashlight · Q throw a rock (fake noise) | Shift lunge · R sonar · T trap |
 
 Esc menu · `-`/`=` zoom · M sound · F2 CRT · F3 netcode overlay · F4 bot debug view (if enabled on the server).
