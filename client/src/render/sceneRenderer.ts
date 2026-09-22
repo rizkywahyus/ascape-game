@@ -68,6 +68,8 @@ interface View {
 export class SceneRenderer {
   /** Dev aid (F4): draw bot paths and states when the server sends them. */
   showBotDebug = false
+  /** On-screen touch controls are shown, so the HUD drops its keyboard help line. */
+  touchUi = false
   private readonly hud: AsciiGrid
   private readonly effects: Effects
   private readonly shader: AsciiShader | null
@@ -146,7 +148,7 @@ export class SceneRenderer {
     // Build the map texture while waiting in the lobby, not on the match's first frame (a visible hitch).
     else if (map) this.baseFor(map)
     this.shader?.draw(this.scene)
-    renderHud(this.hud, game, socket, now)
+    renderHud(this.hud, game, socket, now, !this.touchUi)
     renderOverlays(this.hud, game, now)
   }
 

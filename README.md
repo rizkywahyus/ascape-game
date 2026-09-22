@@ -184,6 +184,10 @@ URL to Supabase Auth → URL configuration (site URL and redirect list).
 
 Esc menu · `-`/`=` zoom · M sound · F2 CRT · F3 netcode overlay · F4 bot debug view (if enabled on the server).
 
+**Phones and tablets**: a floating stick on the left half (push it to the edge to sprint) and role buttons on the
+right (SKILL / ATTACK, USE, LIGHT, ROCK / LUNGE, SONAR, TRAP). They press the same keys as a keyboard player, so
+the netcode is identical. Landscape recommended.
+
 ## Tests
 
 ```bash

@@ -2,6 +2,7 @@ import { AudioEngine } from './audio/audio'
 import { Auth } from './auth/auth'
 import { ClientGame } from './game/clientGame'
 import { KeyboardInput } from './input/keyboard'
+import { TouchControls, type TouchMode } from './input/touchControls'
 import type { RolePreference } from './net/protocol'
 import { gameSocketUrl } from './net/serverUrl'
 import { GameSocket } from './net/socket'
@@ -18,8 +19,15 @@ const FONT_FAMILY = '"JetBrains Mono", ui-monospace, monospace'
 const FONT_LOAD_SPEC = '16px "JetBrains Mono"'
 /** Crisp, readable text for the HUD, menus and labels. */
 const HUD_FONT_PX = 15
+/** Phones: a smaller HUD font so the status lines still fit across the screen. */
+const SMALL_SCREEN_HUD_FONT_PX = 12
+/** A viewport narrower than this, or with a shorter short edge (a phone held sideways), counts as small. */
+const SMALL_SCREEN_WIDTH_PX = 900
+const SMALL_SCREEN_SHORT_EDGE_PX = 500
 /** The world is drawn with many tiny characters; - / = zoom between these bounds. */
 const DEFAULT_WORLD_FONT_PX = 5
+/** Phones start zoomed out so about as much of the manor is in view as on a desktop screen. */
+const SMALL_SCREEN_WORLD_FONT_PX = 3
 const MIN_WORLD_FONT_PX = 3
 const MAX_WORLD_FONT_PX = 14
 const ZOOM_OUT_KEY = 'Minus'
@@ -46,13 +54,26 @@ async function loadFont(): Promise<void> {
   }
 }
 
+function isSmallScreen(): boolean {
+  return window.innerWidth < SMALL_SCREEN_WIDTH_PX || Math.min(window.innerWidth, window.innerHeight) < SMALL_SCREEN_SHORT_EDGE_PX
+}
+
 function readWorldFont(): number {
+  const fallback = isSmallScreen() ? SMALL_SCREEN_WORLD_FONT_PX : DEFAULT_WORLD_FONT_PX
   try {
     const stored = Number(localStorage.getItem(WORLD_FONT_STORAGE_KEY))
-    return stored >= MIN_WORLD_FONT_PX && stored <= MAX_WORLD_FONT_PX ? stored : DEFAULT_WORLD_FONT_PX
+    return stored >= MIN_WORLD_FONT_PX && stored <= MAX_WORLD_FONT_PX ? stored : fallback
   } catch {
-    return DEFAULT_WORLD_FONT_PX
+    return fallback
   }
+}
+
+/** Which on-screen touch controls the current state calls for. */
+function touchModeOf(session: GameSession | null): TouchMode {
+  if (!session) return 'hidden'
+  const you = session.game.latest?.you
+  if (session.game.phase !== 'playing' || !you || you.spectating) return 'waiting'
+  return you.role
 }
 
 function storeWorldFont(size: number): void {
@@ -86,6 +107,10 @@ async function start(): Promise<void> {
   const debugOverlay = new DebugOverlay(grid)
   const audio = new AudioEngine()
   let session: GameSession | null = null
+  const touch = new TouchControls(keyboard, {
+    onMenu: () => leaveGame(),
+    onZoom: (step) => zoom(step),
+  })
   let rolePreference: RolePreference = 'any'
 
   const showMenu = async () => {
@@ -124,6 +149,7 @@ async function start(): Promise<void> {
   }
 
   const resize = () => {
+    grid.setFontSize(isSmallScreen() ? SMALL_SCREEN_HUD_FONT_PX : HUD_FONT_PX)
     grid.resize(window.innerWidth, window.innerHeight)
     renderer.resize(window.innerWidth, window.innerHeight, worldFontPx, FONT_FAMILY)
   }
@@ -139,6 +165,8 @@ async function start(): Promise<void> {
   // Render every frame: interpolation, gliding and effects change the picture even without new snapshots.
   const frame = (now: number) => {
     const presses = keyboard.consumePresses()
+    touch.setMode(touchModeOf(session))
+    renderer.touchUi = touch.active
     if (session && presses.has(LEAVE_KEY)) leaveGame()
     if (session) {
       if (presses.has(DEBUG_TOGGLE_KEY)) debugOverlay.visible = !debugOverlay.visible

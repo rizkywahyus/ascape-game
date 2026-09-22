@@ -29,9 +29,9 @@ export class KeyboardInput {
     })
     target.addEventListener('keyup', (event) => this.held.delete(event.code))
     // Left click counts as a press too (monster attack): some keyboards cannot register Space while two
-    // movement keys are held (key ghosting).
-    target.addEventListener('mousedown', (event) => {
-      if (this.enabled && event.button === 0) this.pressed.add(MOUSE_LEFT)
+    // movement keys are held (key ghosting). Mouse only: a finger tapping the screen is not an attack.
+    target.addEventListener('pointerdown', (event) => {
+      if (this.enabled && event.pointerType === 'mouse' && event.button === 0) this.pressed.add(MOUSE_LEFT)
     })
     // Keyup is never delivered once the window loses focus; drop everything so we don't keep walking.
     target.addEventListener('blur', () => this.held.clear())
@@ -47,6 +47,17 @@ export class KeyboardInput {
 
   interact(): boolean {
     return this.anyHeld(INTERACT_KEYS)
+  }
+
+  /** A virtual key (on-screen touch control) going down; behaves exactly like the physical key. */
+  pressVirtual(code: string): void {
+    if (!this.enabled) return
+    if (!this.held.has(code)) this.pressed.add(code)
+    this.held.add(code)
+  }
+
+  releaseVirtual(code: string): void {
+    this.held.delete(code)
   }
 
   setEnabled(enabled: boolean): void {

@@ -63,12 +63,17 @@ export function showLobbyScreen(
           el('div', { class: 'row', style: 'margin-top: 12px' }, playButton, signOut),
           el(
             'p',
-            { class: 'hint' },
+            { class: 'hint touch-only' },
+            'touch: drag the left side to move (push to the edge to sprint) · buttons on the right act · hold USE to repair, heal, revive',
+          ),
+          el(
+            'p',
+            { class: 'hint keys-only' },
             'survivor: WASD · Shift sprint · hold E repair/revive/heal · E hide · F light · Q rock · Space skill check',
           ),
           el(
             'p',
-            { class: 'hint' },
+            { class: 'hint keys-only' },
             'monster: WASD · Space attack · hold E take downed · E search locker · Shift lunge · R sonar · T trap · Esc menu',
           ),
         ),

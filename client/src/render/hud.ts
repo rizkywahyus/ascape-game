@@ -13,6 +13,8 @@ const BAR_WIDTH = 10
 const FEED_VISIBLE_MS = 8_000
 const FEED_FADE_MS = 1_500
 const PANEL = 'rgba(7, 7, 10, 0.8)'
+/** On touch screens the menu and zoom buttons sit under the top bar; the feed starts below them. */
+const TOUCH_FEED_FIRST_ROW = 5
 
 const HELP: Record<string, string> = {
   survivor: 'WASD move · Shift sprint · hold E: repair/revive/heal · E: locker · F light · Q rock · Space skill check',
@@ -20,12 +22,15 @@ const HELP: Record<string, string> = {
   spectator: 'spectating · Esc menu',
 }
 
-/** Status line on top, player state and controls at the bottom, event feed on the right. */
-export function renderHud(grid: AsciiGrid, game: ClientGame, socket: GameSocket, now: number): void {
+/**
+ * Status line on top, player state and controls at the bottom, event feed on the right. The keyboard help line is
+ * left out on touch screens, where the on-screen buttons are labelled instead.
+ */
+export function renderHud(grid: AsciiGrid, game: ClientGame, socket: GameSocket, now: number, keyboardHelp: boolean): void {
   renderTopBar(grid, game, socket, now)
   if (game.phase !== 'playing' || !game.latest) return
-  renderBottomBar(grid, game, game.latest.you)
-  renderFeed(grid, game, now)
+  renderBottomBar(grid, game, game.latest.you, keyboardHelp)
+  renderFeed(grid, game, now, keyboardHelp ? HUD_TOP_ROWS + 1 : TOUCH_FEED_FIRST_ROW)
 }
 
 function renderTopBar(grid: AsciiGrid, game: ClientGame, socket: GameSocket, now: number): void {
@@ -54,18 +59,18 @@ function renderTopBar(grid: AsciiGrid, game: ClientGame, socket: GameSocket, now
   }
 }
 
-function renderBottomBar(grid: AsciiGrid, game: ClientGame, you: SelfState): void {
-  const statusRow = grid.rows - 2
+function renderBottomBar(grid: AsciiGrid, game: ClientGame, you: SelfState, keyboardHelp: boolean): void {
+  const statusRow = grid.rows - (keyboardHelp ? 2 : 1)
   const helpRow = grid.rows - 1
-  grid.fillCells(0, statusRow, grid.columns, 2, PANEL)
+  grid.fillCells(0, statusRow, grid.columns, grid.rows - statusRow, PANEL)
   if (you.spectating) {
     grid.drawText(1, statusRow, `spectating ${game.nameOf(you.id)}`, Palette.hud)
-    grid.drawText(1, helpRow, HELP.spectator, Palette.hud)
+    if (keyboardHelp) grid.drawText(1, helpRow, HELP.spectator, Palette.hud)
     return
   }
   if (you.role === 'monster') renderMonsterStatus(grid, you, statusRow, game)
   else renderSurvivorStatus(grid, you, statusRow)
-  grid.drawText(1, helpRow, `${HELP[you.role]} · -/= zoom · M sound · Esc menu`, Palette.hud)
+  if (keyboardHelp) grid.drawText(1, helpRow, `${HELP[you.role]} · -/= zoom · M sound · Esc menu`, Palette.hud)
 }
 
 function renderSurvivorStatus(grid: AsciiGrid, you: SelfState, row: number): void {
@@ -120,15 +125,15 @@ function renderMonsterStatus(grid: AsciiGrid, you: SelfState, row: number, game:
   }
 }
 
-function renderFeed(grid: AsciiGrid, game: ClientGame, now: number): void {
+function renderFeed(grid: AsciiGrid, game: ClientGame, now: number, firstRow: number): void {
   const visible = game.feed.filter((line) => now - line.atMs < FEED_VISIBLE_MS)
   visible.forEach((line, index) => {
     const age = now - line.atMs
     const fade = age > FEED_VISIBLE_MS - FEED_FADE_MS ? (FEED_VISIBLE_MS - age) / FEED_FADE_MS : 1
     const text = ` ${line.text} `
     const column = grid.columns - [...text].length - 1
-    grid.fillCells(column, HUD_TOP_ROWS + 1 + index, [...text].length, 1, PANEL)
-    grid.drawText(column, HUD_TOP_ROWS + 1 + index, text, fade < 1 ? scale(line.color, fade) : line.color)
+    grid.fillCells(column, firstRow + index, [...text].length, 1, PANEL)
+    grid.drawText(column, firstRow + index, text, fade < 1 ? scale(line.color, fade) : line.color)
   })
 }
 
