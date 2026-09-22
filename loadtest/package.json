@@ -1,0 +1,15 @@
+{
+  "name": "ascape-loadtest",
+  "private": true,
+  "type": "module",
+  "description": "WebSocket load generator for the @scape server (needs AUTH_ALLOW_UNAUTHENTICATED=true)",
+  "scripts": {
+    "start": "node loadtest.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

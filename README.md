@@ -1,0 +1,165 @@
+# @scape
+
+A real-time multiplayer horror game drawn entirely in coloured ASCII. **Asymmetric Hunt**: 1 monster against 4
+survivors on a dark map. Survivors repair 5 of 7 generators to open the gate and escape; the monster hunts them by
+sight, sound and scratch marks. Empty slots are filled by bots, so you can play solo, and bots take over for
+players who drop out.
+
+![Survivor view with the netcode overlay](docs/screenshots/survivor.png)
+
+| Monster view (red dark-vision, repaired generator `[■]`) | Menu |
+|---|---|
+| ![Monster view](docs/screenshots/monster.png) | ![Menu](docs/screenshots/menu.png) |
+
+## Highlights
+
+- **Server-authoritative** Spring Boot game server over raw WebSocket; clients send inputs, never positions.
+- **Client-side prediction + reconciliation + interpolation**, verified with 0 corrections under 200 ms RTT.
+  Movement is deterministic and shared: Java and TypeScript both run [`shared/fixtures/movement-cases.json`](shared/fixtures/movement-cases.json).
+- **Anti-wallhack by design**: every snapshot is filtered per player (line of sight, light radius, sonar). Enemies
+  you cannot see are never serialised; the monster hears sounds as a *direction*, never a position. Covered by
+  [`SnapshotVisibilityTest`](server/src/test/java/dev/ascape/game/room/SnapshotVisibilityTest.java).
+- **Fair bot AI** through the same input path as humans and the same visibility filter: A* pathfinding, a monster
+  FSM (patrol → investigate → chase → search) and survivor utility AI (repair, flee out of sight, hide, revive,
+  heal, escape), with reaction delay and difficulty levels.
+- **Matchmaking** with role preference, bot fill, drop-in over bots and 30 s reconnect grace.
+- **ASCII renderer** on canvas with a glyph atlas, per-cell lighting and fog, sound arcs `)))`, particles, screen
+  shake, heartbeat vignette, synthesised WebAudio and an optional CRT look.
+- **Supabase** auth (JWT verified against JWKS, guest + magic link) and Postgres persistence through a least-privilege
+  role and an async write queue that never touches the game loop.
+
+## Architecture
+
+```
+Browser (Vite + TS)                     Spring Boot 4 (Java 21)                        Supabase
+┌───────────────────────┐   input 20/s  ┌──────────────────────────────────────┐       ┌───────────────┐
+│ KeyboardInput         │ ────────────► │ GameWebSocketHandler (rate limit)    │       │ Auth (JWKS)   │
+│ PredictedCharacter    │               │  └► RoomManager (matchmaking)        │       │ Postgres      │
+│ SnapshotBuffer (lerp) │ ◄──────────── │      └► GameRoom  ── 1 thread, 20 Hz │ async │  profiles     │
+│ SceneRenderer (ASCII) │ snapshot 20/s │           ├ Match (pure simulation)  │ ────► │  player_stats │
+│ HUD · effects · audio │  per player   │           ├ Bot ×n (same inputs)     │ queue │  matches      │
+└───────────────────────┘               │           └ SnapshotBuilder (filter) │       │  match_players│
+                                        └──────────────────────────────────────┘       └───────────────┘
+```
+
+- **One thread per room.** Network threads only enqueue commands; the room drains them at the start of each tick,
+  so the simulation needs no locks. `Match` is a pure class (no threads, clock or I/O) and is unit-tested directly.
+- **Non-blocking fan-out.** Each connection has a bounded outbox drained by its own virtual thread; a client that
+  stops reading is disconnected instead of stalling the room (`ClientConnection` + backpressure test).
+- **Shared rules.** [`shared/rules.json`](shared/rules.json), the tile legend and maps are read by both the server
+  (packaged on the classpath) and the client (bundled by Vite). [`shared/protocol.md`](shared/protocol.md) is the
+  wire-protocol source of truth.
+
+### Netcode
+
+1. The client samples input on a fixed 20 Hz step, sends it with a sequence number and immediately applies it to its
+   own predicted character using the same movement function as the server.
+2. The server consumes at most one input per character per tick. A character with no input is not simulated that
+   tick, which keeps the server state after `ackSeq` exactly equal to the client's prediction.
+3. Each snapshot carries `ackSeq` and the authoritative state; the client resets to it and replays the inputs the
+   server has not seen yet. Mismatches are counted in the F3 overlay.
+4. Other players are rendered 100 ms in the past, interpolated between snapshots on the server's timeline.
+
+Try it with artificial lag: `SIMULATED_LATENCY_MS=100` adds 100 ms each way on the server.
+
+## Numbers
+
+Load test with [`loadtest/`](loadtest/loadtest.mjs) (Node `ws` clients that matchmake, send 20 inputs/s with a
+random walk and ping every 2 s), server and load generator on the same laptop (Intel i5-8257U, 4 cores / 8 threads, 2019), no database:
+
+| clients | rooms | server tick p50 / p95 / p99 | tick budget | RTT p50 / p95 | download per client | errors |
+|--------:|------:|-----------------------------|------------:|---------------|--------------------:|-------:|
+| 100 | 20 | 0.31 / 0.72 / 1.44 ms | 50 ms | 2.1 / 5.6 ms | 25 KB/s | 0 |
+| 500 | 99 | 0.15 / 0.43 / 0.89 ms | 50 ms | 10.5 / 52 ms | 26 KB/s | 0 |
+
+At 500 clients the server used ~2.4 cores and ~380 MB RSS, mostly for JSON serialisation (≈13 MB/s). The RTT tail
+at 500 is inflated by the single-threaded load generator sharing the machine. Bandwidth is the obvious next target
+(binary encoding + delta snapshots, plan M9).
+
+A bot-only match simulation (5 bots, full match) costs ~60–200 µs per tick.
+
+## Technical decisions
+
+- **Raw WebSocket, not STOMP or MQTT.** One connection per player, custom JSON envelope, no broker. MQTT is built
+  for IoT fan-out through a broker and adds a hop; STOMP adds framing we do not need.
+- **Server-authoritative + visibility filtering.** The only way to make wallhacks impossible is to never send what
+  the player may not see. It also makes the bots fair: they perceive through the same filter.
+- **Grid-step movement instead of float physics.** It matches the ASCII grid, makes prediction bit-for-bit
+  deterministic across Java and TypeScript, and keeps A* and line of sight simple. Smoothness comes from
+  interpolating rendering, not from the simulation.
+- **Plain `spring-jdbc` + Hikari instead of the JDBC starter.** Without a database URL the server runs with an
+  in-memory store, so tests and local play need no database.
+- **Least-privilege database role.** The server connects as `ascape_server`, which can only touch the game tables
+  (RLS policies, no access to `auth.*`); the admin connection is only for migrations.
+- **Spring Boot 4.1** (the 3.x line is no longer offered by start.spring.io); Jackson 3 (`tools.jackson`).
+
+## Project layout
+
+| Path | What |
+|---|---|
+| `server/` | Spring Boot game server: `net` (WebSocket, protocol), `game/match` (simulation), `game/room` (lifecycle, snapshots, matchmaking), `game/bot` (AI), `auth`, `player` (persistence), `api` (REST) |
+| `client/` | Vite + TypeScript: `game` (prediction, interpolation, lighting), `render` (ASCII grid, HUD, effects), `net`, `ui`, `audio`, `auth` |
+| `shared/` | `protocol.md`, `rules.json`, `maps/` (map files + tile legend), `fixtures/` (cross-language tests) |
+| `supabase/migrations/` | Schema, RLS, server role |
+| `loadtest/` | WebSocket load generator |
+
+## Running locally
+
+Requirements: Java 21, Node ≥ 20.19. Copy `.env.example` to `.env` (the server reads it on startup).
+
+```bash
+# terminal 1 — server on :8080 (add AUTH_ALLOW_UNAUTHENTICATED=true to play without Supabase)
+cd server && ./mvnw spring-boot:run
+
+# terminal 2 — client on :5173 (proxies /ws and /api to :8080)
+cd client && npm install && npm run dev
+```
+
+Without `VITE_SUPABASE_*` the client skips sign-in and plays as a guest, which needs
+`AUTH_ALLOW_UNAUTHENTICATED=true` on the server. Or everything in Docker: `docker compose up --build`
+(client on :8081).
+
+### Configuration (server)
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `SUPABASE_URL` | – | Verifies access tokens against the project's JWKS |
+| `DB_URL`, `DB_USER`, `DB_PASSWORD` | – | JDBC connection as `ascape_server`; empty = in-memory store |
+| `ALLOWED_ORIGINS` | `http://localhost:5173` | Browser origins for the WebSocket and CORS |
+| `AUTH_ALLOW_UNAUTHENTICATED` | `false` | Accept tokenless guests (dev, load tests) |
+| `BOT_DIFFICULTY` | `normal` | `easy`, `normal`, `hard` |
+| `SIMULATED_LATENCY_MS` | `0` | Extra one-way latency, for netcode demos |
+| `ASCAPE_DEBUG_LOBBYCOUNTDOWNSECONDS` | rules.json | Shorter lobby countdown for testing |
+| `BOT_DEBUG_VIEW` | `false` | Sends bot states and paths to clients (F4). Reveals positions — dev only |
+
+Client build: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, and `VITE_SERVER_URL` when the client is hosted
+on a different origin than the server.
+
+### Supabase setup
+
+1. Apply `supabase/migrations/*.sql` (`supabase db push`, or run them in order).
+2. Set a password for the server role: `alter role ascape_server with password '…';` and use
+   `ascape_server.<project-ref>` as `DB_USER` with the session pooler URL.
+3. Auth → Providers: enable **anonymous sign-ins** (guest play) and email (magic link).
+   Auth → URL configuration: add your client URLs to the redirect allow-list.
+
+## Controls
+
+| | Survivor | Monster |
+|---|---|---|
+| Move | WASD / arrows, Shift sprint | WASD / arrows |
+| E | hold: repair, revive, heal · press: hide in / leave a locker | hold: carry off a downed survivor · press: search a locker |
+| Space | skill check | attack |
+| Other | F flashlight · Q throw a rock (fake noise) | Shift lunge · R sonar · T trap |
+
+Esc menu · M sound · F2 CRT · F3 netcode overlay · F4 bot debug view (if enabled on the server).
+
+## Tests
+
+```bash
+cd server && ./mvnw verify          # 67 tests: simulation, visibility, bots, protocol, auth, backpressure
+cd client && npm test && npm run build   # 28 tests: movement parity, prediction, interpolation, lighting
+cd loadtest && npm install && node loadtest.mjs --clients 100 --seconds 30
+```
+
+CI runs both suites on every push ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
