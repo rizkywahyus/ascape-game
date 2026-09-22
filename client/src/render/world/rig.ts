@@ -44,9 +44,9 @@ export function drawSurvivor(context: CanvasRenderingContext2D, pose: Pose, phas
   const moving = pose === 'walk' || running
   const crouch = pose === 'repair'
   const swing = moving ? Math.sin(phase) * (running ? 0.95 : 0.55) : 0
-  const lean = running ? 4 : crouch ? 3 : 0
+  const lean = running ? 4 : crouch ? 7 : 0
   const bob = moving ? Math.abs(Math.cos(phase)) * (running ? 2 : 1) : pose === 'idle' ? Math.sin(phase) * 0.4 : 0
-  const hipY = crouch ? 10 : 16 + bob
+  const hipY = crouch ? 9 : 16 + bob
 
   // Legs: back leg first so the front one overlaps it.
   drawLeg(context, 0, hipY, -swing, crouch, TROUSERS_DARK)
@@ -62,10 +62,11 @@ export function drawSurvivor(context: CanvasRenderingContext2D, pose: Pose, phas
     dot(context, neck.x * 0.5 - 2, -(hipY + 8), 1.2, BLOOD)
   }
 
-  // Arms swing against the legs; repairing reaches forward to the machine.
+  // Arms swing against the legs; repairing reaches forward (positive angle = in front) to the machine,
+  // hands working alternately.
   const shoulder = { x: neck.x, y: neck.y - 1 }
-  const backArm = crouch ? -0.9 + Math.sin(phase * 2) * 0.15 : swing * 0.9
-  const frontArm = crouch ? -1.2 + Math.cos(phase * 2) * 0.2 : -swing * 0.9
+  const backArm = crouch ? 1.15 + Math.sin(phase * 2) * 0.15 : swing * 0.9
+  const frontArm = crouch ? 1.45 + Math.cos(phase * 2) * 0.2 : -swing * 0.9
   drawArm(context, shoulder.x, shoulder.y, backArm, shade(style.body, 0.5), false)
   const hand = drawArm(context, shoulder.x, shoulder.y, frontArm, shade(style.body, 0.85), true)
   if (style.flashlight && !crouch) dot(context, hand.x + 1, -hand.y, 1.5, '#fff6cf') // the torch

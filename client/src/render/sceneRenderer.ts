@@ -4,7 +4,7 @@ import { GameRules } from '../game/rules'
 import type { TileMap } from '../game/tileMap'
 import { Actions, type EntityView, type SnapshotPayload } from '../net/protocol'
 import type { GameSocket } from '../net/socket'
-import { Animator } from './animator'
+import { Animator, type Facing } from './animator'
 import type { AsciiGrid } from './asciiGrid'
 import { viewportOrigin } from './camera'
 import { parseHex } from './color'
@@ -164,7 +164,7 @@ export class SceneRenderer {
     // Back to front: sprites lower on screen overlap the ones behind them.
     const drawOrder = [...others, ...(snapshot.you.hidden ? [] : [self])].sort((a, b) => a.renderY - b.renderY)
     for (const entity of drawOrder) {
-      this.paintEntity(entity, map, brightness, toX, toY, now, entity === self)
+      this.paintEntity(entity, snapshot, map, brightness, toX, toY, now, entity === self)
       if (entity.activity === 'repair') this.effects.sparkle(entity.x, entity.y, now)
     }
     this.paintSounds(snapshot, self, toX, toY)
@@ -285,6 +285,7 @@ export class SceneRenderer {
 
   private paintEntity(
     entity: Positioned,
+    snapshot: SnapshotPayload,
     map: TileMap,
     brightness: Float32Array,
     toX: (x: number) => number,
@@ -292,7 +293,9 @@ export class SceneRenderer {
     now: number,
     isSelf: boolean,
   ): void {
-    const { pose, phase, facing } = this.animator.frame(entity, now)
+    const animation = this.animator.frame(entity, now)
+    const { pose, phase } = animation
+    const facing = this.channelFacing(entity, snapshot) ?? animation.facing
     const feetX = toX(entity.renderX * TILE_W + TILE_W / 2)
     const feetY = toY(entity.renderY * TILE_H + TILE_H - 1)
     const context = this.sceneContext
@@ -308,6 +311,29 @@ export class SceneRenderer {
       })
     })
     context.globalAlpha = 1
+  }
+
+  /**
+   * While channelling, face what is being worked on (the nearest generator, or the teammate being revived or
+   * healed) instead of the last walking direction. Null when not channelling or the target is straight above/below.
+   */
+  private channelFacing(entity: Positioned, snapshot: SnapshotPayload): Facing | null {
+    if (entity.activity === 'none') return null
+    const candidates: { x: number; y: number }[] = entity.activity === 'repair'
+      ? snapshot.generators
+      : snapshot.entities.filter((other) => other.id !== entity.id && other.kind === 'survivor'
+        && other.health === (entity.activity === 'revive' ? 'downed' : entity.activity === 'heal' ? 'injured' : ''))
+    let nearest: { x: number; y: number } | null = null
+    let best = Infinity
+    for (const target of candidates) {
+      const distance = Math.max(Math.abs(target.x - entity.x), Math.abs(target.y - entity.y))
+      if (distance < best) {
+        best = distance
+        nearest = target
+      }
+    }
+    if (!nearest || nearest.x === entity.x) return null
+    return nearest.x > entity.x ? 1 : -1
   }
 
   /** Character cells are about twice as tall as wide; rigs are squashed vertically to stay in proportion. */
