@@ -1,7 +1,7 @@
 import type { RolePreference } from '../net/protocol'
 import { ApiError, type Api, type LeaderboardKind, type Profile } from './api'
 import { errorText } from './authScreen'
-import { el, panel } from './dom'
+import { el, howItWorks, panel } from './dom'
 import { LOGO } from './logo'
 
 export interface LobbyCallbacks {
@@ -51,6 +51,8 @@ export function showLobbyScreen(
       'div',
       { class: 'screen' },
       el('pre', { class: 'logo' }, LOGO),
+      el('p', { class: 'tagline' }, 'A multiplayer horror game drawn in ASCII. 1 monster · 4 survivors · 1 way out.'),
+      howItWorks(),
       el(
         'div',
         { class: 'columns' },

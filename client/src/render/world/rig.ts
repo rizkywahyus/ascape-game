@@ -29,6 +29,12 @@ const MONSTER_HIGHLIGHT = '#ff7a5c'
 const MONSTER_EYE = '#ffe14a'
 const BONE = '#ece3cf'
 
+/**
+ * Rig units → scene pixels. At 0.9 a survivor stands ≈ 1.3 tiles tall and the monster ≈ 1.9, so characters read
+ * as smaller than the walls around them.
+ */
+export const RIG_SCALE = 0.9
+
 /** Survivor ≈ 36 rig units tall; the monster ≈ 54. */
 export const SURVIVOR_HEIGHT = 36
 export const MONSTER_HEIGHT = 54

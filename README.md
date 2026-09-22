@@ -7,7 +7,7 @@ players who drop out.
 
 ![Survivor view with the netcode overlay](docs/screenshots/survivor.png)
 
-| Monster view (red dark-vision) | Menu |
+| Monster view (red dark-vision) | Menu over the live attract-mode scene |
 |---|---|
 | ![Monster view](docs/screenshots/monster.png) | ![Menu](docs/screenshots/menu.png) |
 
@@ -22,6 +22,9 @@ players who drop out.
 - **Fair bot AI** through the same input path as humans and the same visibility filter: A* pathfinding, a monster
   FSM (patrol → investigate → chase → search) and survivor utility AI (repair, flee out of sight, hide, revive,
   heal, escape), with reaction delay and difficulty levels.
+- **Attract mode**: the menu floats over a scripted scene rendered by the same ASCII pipeline — survivors repair a
+  generator, the monster creeps out of the dark, strikes, and the chase begins — with captions, so visitors grasp
+  the game before pressing play.
 - **Matchmaking** with role preference, bot fill, drop-in over bots and 30 s reconnect grace.
 - **Image-to-ASCII renderer**: the world is painted as a small picture (1 pixel per character cell: brick walls,
   lit floor, machines, and characters drawn as shaded, animated vector rigs — a walking/sprinting survivor and a

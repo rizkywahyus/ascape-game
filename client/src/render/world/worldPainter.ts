@@ -206,3 +206,44 @@ function hash(x: number, y: number): number {
   h = Math.imul(h ^ (h >>> 13), 1274126177)
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296
 }
+
+/**
+ * Multiplies a scene by a per-tile light map, scaled up with smoothing so light falls off gradually across each
+ * tile instead of in blocks. The image buffer is reused between frames.
+ */
+export class LightMap {
+  private readonly canvas = document.createElement('canvas')
+  private image: ImageData | null = null
+
+  /** `valueAt(i)` is the final 0..1 light of tile i (row-major); `tint` the light colour as 0..1 channels. */
+  apply(
+    context: CanvasRenderingContext2D,
+    map: TileMap,
+    valueAt: (tileIndex: number) => number,
+    tint: readonly [number, number, number],
+    originX: number,
+    originY: number,
+  ): void {
+    const lightContext = this.canvas.getContext('2d')!
+    if (this.canvas.width !== map.width || this.canvas.height !== map.height || !this.image) {
+      this.canvas.width = map.width
+      this.canvas.height = map.height
+      this.image = lightContext.createImageData(map.width, map.height)
+    }
+    const data = this.image.data
+    for (let i = 0; i < map.width * map.height; i++) {
+      const value = valueAt(i)
+      data[i * 4] = 255 * value * tint[0]
+      data[i * 4 + 1] = 255 * value * tint[1]
+      data[i * 4 + 2] = 255 * value * tint[2]
+      data[i * 4 + 3] = 255
+    }
+    lightContext.putImageData(this.image, 0, 0)
+    context.save()
+    context.globalCompositeOperation = 'multiply'
+    context.imageSmoothingEnabled = true
+    context.imageSmoothingQuality = 'high'
+    context.drawImage(this.canvas, -originX, -originY, map.width * TILE_W, map.height * TILE_H)
+    context.restore()
+  }
+}

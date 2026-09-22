@@ -153,6 +153,8 @@ async function start(): Promise<void> {
       audio.update(session.game, now)
       renderer.render(session.game, session.socket, now)
       debugOverlay.render(session.game, session.socket, now)
+    } else {
+      renderer.renderAttract(now)
     }
     previousTime = now
     requestAnimationFrame(frame)

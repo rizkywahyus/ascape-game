@@ -11,9 +11,10 @@ import { parseHex } from './color'
 import type { Effects } from './effects'
 import { renderHud } from './hud'
 import { renderOverlays } from './overlays'
+import { AttractScene } from './attract/attractScene'
 import { AsciiShader } from './world/asciiShader'
-import { drawMonster, drawSurvivor, withRigTransform } from './world/rig'
-import { fill, paintGenerators, paintOpenGate, renderMapBase, TILE_H, TILE_W } from './world/worldPainter'
+import { drawMonster, drawSurvivor, RIG_SCALE, withRigTransform } from './world/rig'
+import { fill, LightMap, paintGenerators, paintOpenGate, renderMapBase, TILE_H, TILE_W } from './world/worldPainter'
 
 /** Light colour multiplied over the scene: warm flashlight for survivors, red dark-vision for the monster. */
 const SURVIVOR_TINT = [1.0, 0.9, 0.74] as const
@@ -28,11 +29,6 @@ const GATE_LIGHT_RADIUS = 3
 /** Entities the server lets us see but that stand in darkness (teammate aura, sonar) are drawn dimmer. */
 const ENTITY_MIN_BRIGHTNESS = 0.5
 const BLINK_MS = 400
-/**
- * Rig units → scene pixels. At 0.9 a survivor stands ≈ 1.3 tiles tall and the monster ≈ 1.9, so characters read
- * as smaller than the walls around them.
- */
-const RIG_SCALE = 0.9
 const INJURED_COLOR = '#e74c3c'
 const TRAIL_RGB = [150, 20, 12] as const
 const TRAP_RGB = [230, 60, 45] as const
@@ -77,14 +73,14 @@ export class SceneRenderer {
   private readonly shader: AsciiShader | null
   private readonly scene = document.createElement('canvas')
   private readonly sceneContext: CanvasRenderingContext2D
-  private readonly lightCanvas = document.createElement('canvas')
-  private lightImage: ImageData | null = null
+  private readonly lightMap = new LightMap()
   private readonly animator = new Animator()
   private mapBase: { map: TileMap; canvas: HTMLCanvasElement } | null = null
   private lightingCache: LightingCache | null = null
   private seen: Uint8Array | null = null
   private seenMap: TileMap | null = null
   private lastOwnAttackCooldown = 0
+  private attract: AttractScene | null = null
 
   constructor(hud: AsciiGrid, effects: Effects, worldCanvas: HTMLCanvasElement) {
     this.hud = hud
@@ -115,6 +111,24 @@ export class SceneRenderer {
     const grid = this.shader.resize(widthCss, heightCss, worldFontCss, fontFamily)
     this.scene.width = grid.columns
     this.scene.height = grid.rows
+  }
+
+  /** Menu background: the scripted attract-mode scene instead of a live match. */
+  renderAttract(now: number): void {
+    this.hud.clear(null)
+    const context = this.sceneContext
+    context.globalCompositeOperation = 'source-over'
+    context.globalAlpha = 1
+    context.fillStyle = '#000'
+    context.fillRect(0, 0, this.scene.width, this.scene.height)
+    if (!this.shader) return
+    this.attract ??= new AttractScene()
+    const labels = this.attract.paint(context, this.scene.width, this.scene.height, this.cellAspect(), now)
+    this.shader.draw(this.scene)
+    for (const label of labels) {
+      const { column, row } = this.hudCell(label.sceneX, label.sceneY)
+      this.hud.drawText(column - Math.floor(label.text.length / 2), row, label.text, label.color)
+    }
   }
 
   render(game: ClientGame, socket: GameSocket, now: number): void {
@@ -213,37 +227,12 @@ export class SceneRenderer {
     for (let i = 0; i < brightness.length; i++) if (brightness[i] > 0) this.seen[i] = 1
   }
 
-  /**
-   * Multiplies the scene by a per-tile light map, scaled up with smoothing so light falls off gradually across
-   * each tile instead of in blocks.
-   */
   private applyLight(map: TileMap, brightness: Float32Array, role: string, view: View): void {
-    const light = this.lightCanvas
-    const lightContext = light.getContext('2d')!
-    if (light.width !== map.width || light.height !== map.height || !this.lightImage) {
-      light.width = map.width
-      light.height = map.height
-      this.lightImage = lightContext.createImageData(map.width, map.height) // reused every frame: no GC churn
-    }
-    const image = this.lightImage
-    const tint = role === 'monster' ? MONSTER_TINT : SURVIVOR_TINT
     const seen = this.seen!
-    for (let i = 0; i < brightness.length; i++) {
+    this.lightMap.apply(this.sceneContext, map, (i) => {
       const ambient = seen[i] ? AMBIENT_REMEMBERED : AMBIENT_UNSEEN
-      const value = Math.min(1, Math.max(ambient, brightness[i] * LIGHT_BOOST))
-      image.data[i * 4] = 255 * value * tint[0]
-      image.data[i * 4 + 1] = 255 * value * tint[1]
-      image.data[i * 4 + 2] = 255 * value * tint[2]
-      image.data[i * 4 + 3] = 255
-    }
-    lightContext.putImageData(image, 0, 0)
-    const context = this.sceneContext
-    context.save()
-    context.globalCompositeOperation = 'multiply'
-    context.imageSmoothingEnabled = true
-    context.imageSmoothingQuality = 'high'
-    context.drawImage(light, -view.originX, -view.originY, map.width * TILE_W, map.height * TILE_H)
-    context.restore()
+      return Math.min(1, Math.max(ambient, brightness[i] * LIGHT_BOOST))
+    }, role === 'monster' ? MONSTER_TINT : SURVIVOR_TINT, view.originX, view.originY)
   }
 
   private lightAt(map: TileMap, brightness: Float32Array, x: number, y: number): number {

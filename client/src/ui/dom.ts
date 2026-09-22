@@ -27,3 +27,21 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 export function panel(title: string, ...children: Child[]): HTMLElement {
   return el('section', { class: 'panel' }, el('h2', { class: 'panel-title' }, `┌─ ${title} `), ...children)
 }
+
+/** The three-line explanation shown on every menu screen, next to the live attract scene. */
+export function howItWorks(): HTMLElement {
+  const line = (glyph: string, kind: string, text: string) => [
+    el('dt', { class: kind }, glyph),
+    el('dd', {}, text),
+  ]
+  return panel(
+    'how it works',
+    el(
+      'dl',
+      { class: 'how' },
+      ...line('@', 'survivor', '4 survivors repair 5 of the 7 generators, then escape through the gate.'),
+      ...line('M', 'monster', 'The monster hunts them in the dark: two hits down a survivor, then it carries them off.'),
+      ...line('!', 'warn', 'Light and noise give you away — flashlights, sprinting and repairs can be seen or heard.'),
+    ),
+  )
+}
