@@ -1,6 +1,5 @@
 import type { Auth } from '../auth/auth'
-import { el, howItWorks, panel } from './dom'
-import { LOGO } from './logo'
+import { el, howItWorks, menuHeader, panel } from './dom'
 
 /** Sign-in: anonymous guest play or an email magic link. Resolves once a session exists. */
 export function showAuthScreen(root: HTMLElement, auth: Auth): Promise<void> {
@@ -41,8 +40,7 @@ export function showAuthScreen(root: HTMLElement, auth: Auth): Promise<void> {
       el(
         'div',
         { class: 'screen' },
-        el('pre', { class: 'logo' }, LOGO),
-        el('p', { class: 'tagline' }, 'A multiplayer horror game drawn in ASCII. 1 monster · 4 survivors · 1 way out.'),
+        ...menuHeader(),
         howItWorks(),
         panel(
           'sign in',

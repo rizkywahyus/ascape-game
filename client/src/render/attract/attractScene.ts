@@ -18,7 +18,21 @@ const STAGE_SCREEN_X = 0.72
 const STAGE_SCREEN_Y = 0.52
 /** The scene is drawn zoomed out (vs. the game) so the whole chase fits beside the panels. */
 const ZOOM = 0.85
+/**
+ * In an inset box (small screens) the view is cropped tight around the chase: feet move between rows 11 and 17 and
+ * heads reach about two tiles higher, so rows 9–18 are framed, centred a little above the stage's focus.
+ */
+const INSET_VIEW_TILES = { width: 10, height: 9 } as const
+const INSET_FOCUS_Y = 13.5
 const PHASE_CYCLE_MS: Record<string, number> = { idle: 2200, walk: 400, run: 260, repair: 700, lunge: 280, attack: 1000 }
+
+/** A rectangle in scene pixels. */
+export interface SceneArea {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+}
 
 /** A caption to draw over a character, in scene pixels. */
 export interface SceneLabel {
@@ -35,17 +49,31 @@ export class AttractScene {
   private readonly lightMap = new LightMap()
   private lighting: { key: string; brightness: Float32Array } | null = null
 
-  paint(context: CanvasRenderingContext2D, width: number, height: number, cellAspect: number, nowMs: number): SceneLabel[] {
+  /**
+   * Paints the scene across the whole canvas with the stage right of centre (wide screens, menu on the left), or,
+   * given `inset`, only inside that box with the stage centred and zoomed to fit.
+   */
+  paint(context: CanvasRenderingContext2D, width: number, height: number, cellAspect: number, nowMs: number,
+    inset: SceneArea | null = null): SceneLabel[] {
     const state = attractStateAt(nowMs / 1000)
     const focusX = STAGE.focus.x * TILE_W + TILE_W / 2
-    const focusY = STAGE.focus.y * TILE_H + TILE_H / 2
-    // World pixels → scene pixels: zoomed out and shifted so the stage's focus lands right of centre.
-    const offsetX = Math.round(width * STAGE_SCREEN_X - focusX * ZOOM)
-    const offsetY = Math.round(height * STAGE_SCREEN_Y - focusY * ZOOM)
+    const focusY = (inset ? INSET_FOCUS_Y : STAGE.focus.y) * TILE_H + TILE_H / 2
+    const area = inset ?? { x: 0, y: 0, width, height }
+    const zoom = inset
+      ? Math.min(inset.width / (INSET_VIEW_TILES.width * TILE_W), inset.height / (INSET_VIEW_TILES.height * TILE_H))
+      : ZOOM
+    const stageX = inset ? area.x + area.width / 2 : width * STAGE_SCREEN_X
+    const stageY = inset ? area.y + area.height / 2 : height * STAGE_SCREEN_Y
+    // World pixels → scene pixels: zoomed out and shifted so the stage's focus lands on (stageX, stageY).
+    const offsetX = Math.round(stageX - focusX * zoom)
+    const offsetY = Math.round(stageY - focusY * zoom)
     const identity = (value: number) => value
 
     context.save()
-    context.setTransform(ZOOM, 0, 0, ZOOM, offsetX, offsetY)
+    context.beginPath()
+    context.rect(area.x, area.y, area.width, area.height)
+    context.clip()
+    context.setTransform(zoom, 0, 0, zoom, offsetX, offsetY)
     context.imageSmoothingEnabled = false
     context.drawImage(this.base, 0, 0)
     paintGenerators(context, [{ id: 1, ...STAGE.generator, progress: state.generatorProgress, done: false }], identity,
@@ -73,15 +101,18 @@ export class AttractScene {
       context.globalAlpha = 1
       const headroom = (actor.kind === 'monster' ? 58 : 40) * RIG_SCALE * cellAspect
       labels.push({
-        sceneX: feetX * ZOOM + offsetX,
-        sceneY: (feetY - headroom) * ZOOM + offsetY,
+        sceneX: feetX * zoom + offsetX,
+        sceneY: (feetY - headroom) * zoom + offsetY,
         text: actor.label,
         color: actor.kind === 'monster' ? '#e0685a' : '#b8c4cc',
       })
     }
+    context.setTransform(1, 0, 0, 1, 0, 0)
+    this.paintMood(context, area, stageX, stageY, state.terror, state.flash, nowMs)
     context.restore()
-    this.paintMood(context, width, height, state.terror, state.flash, nowMs)
-    return state.fade > 0.5 ? labels : []
+    const inside = (label: SceneLabel) => label.sceneX >= area.x && label.sceneX < area.x + area.width
+      && label.sceneY >= area.y && label.sceneY < area.y + area.height
+    return state.fade > 0.5 ? labels.filter(inside) : []
   }
 
   private bodyColor(actor: ActorState, nowMs: number): string {
@@ -102,21 +133,22 @@ export class AttractScene {
   }
 
   /** Heartbeat vignette as the monster closes in, and the red flash of the strike. */
-  private paintMood(context: CanvasRenderingContext2D, width: number, height: number, terror: number, flash: number,
-    nowMs: number): void {
+  private paintMood(context: CanvasRenderingContext2D, area: SceneArea, stageX: number, stageY: number, terror: number,
+    flash: number, nowMs: number): void {
+    const shortSide = Math.min(area.width, area.height)
+    const longSide = Math.max(area.width, area.height)
     if (terror > 0) {
       const pulse = Math.pow(Math.max(0, Math.sin((nowMs / 1000) * Math.PI * (1 + terror * 1.8))), 8)
-      const gradient = context.createRadialGradient(width * STAGE_SCREEN_X, height / 2, Math.min(width, height) * 0.25,
-        width * STAGE_SCREEN_X, height / 2, Math.max(width, height) * 0.7)
+      const gradient = context.createRadialGradient(stageX, stageY, shortSide * 0.25, stageX, stageY, longSide * 0.7)
       gradient.addColorStop(0, 'rgba(120, 0, 0, 0)')
       gradient.addColorStop(1, `rgba(150, 0, 0, ${Math.min(0.8, terror * (0.3 + 0.5 * pulse))})`)
       context.fillStyle = gradient
-      context.fillRect(0, 0, width, height)
+      context.fillRect(area.x, area.y, area.width, area.height)
     }
     if (flash > 0) {
       context.globalAlpha = flash * 0.4
       context.fillStyle = '#c0392b'
-      context.fillRect(0, 0, width, height)
+      context.fillRect(area.x, area.y, area.width, area.height)
       context.globalAlpha = 1
     }
   }

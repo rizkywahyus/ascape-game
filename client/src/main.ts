@@ -12,6 +12,7 @@ import { Effects } from './render/effects'
 import { SceneRenderer } from './render/sceneRenderer'
 import { Api } from './ui/api'
 import { errorText, showAuthScreen } from './ui/authScreen'
+import { ATTRACT_STAGE_CLASS } from './ui/dom'
 import { showLobbyScreen } from './ui/lobbyScreen'
 import './ui/styles.css'
 
@@ -66,6 +67,13 @@ function readWorldFont(): number {
   } catch {
     return fallback
   }
+}
+
+/** The menu's stage box when the layout shows it (small screens), so the attract scene is drawn inside it. */
+function attractStage(ui: HTMLElement): DOMRect | null {
+  const stage = ui.querySelector<HTMLElement>(`.${ATTRACT_STAGE_CLASS}`)
+  const box = stage?.getBoundingClientRect()
+  return box && box.width > 0 && box.height > 0 ? box : null
 }
 
 /** Which on-screen touch controls the current state calls for. */
@@ -182,7 +190,7 @@ async function start(): Promise<void> {
       renderer.render(session.game, session.socket, now)
       debugOverlay.render(session.game, session.socket, now)
     } else {
-      renderer.renderAttract(now)
+      renderer.renderAttract(now, attractStage(ui))
     }
     previousTime = now
     requestAnimationFrame(frame)

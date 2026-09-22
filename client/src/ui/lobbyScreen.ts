@@ -1,8 +1,7 @@
 import type { RolePreference } from '../net/protocol'
 import { ApiError, type Api, type LeaderboardKind, type Profile } from './api'
 import { errorText } from './authScreen'
-import { el, howItWorks, panel } from './dom'
-import { LOGO } from './logo'
+import { el, howItWorks, menuHeader, panel } from './dom'
 
 export interface LobbyCallbacks {
   onPlay(rolePreference: RolePreference): void
@@ -50,8 +49,7 @@ export function showLobbyScreen(
     el(
       'div',
       { class: 'screen' },
-      el('pre', { class: 'logo' }, LOGO),
-      el('p', { class: 'tagline' }, 'A multiplayer horror game drawn in ASCII. 1 monster · 4 survivors · 1 way out.'),
+      ...menuHeader(),
       howItWorks(),
       el(
         'div',
@@ -82,7 +80,7 @@ export function showLobbyScreen(
       leaderboardPanel(api),
     ),
   )
-  playButton.focus()
+  playButton.focus({ preventScroll: true })
 }
 
 function profilePanel(api: Api): HTMLElement {

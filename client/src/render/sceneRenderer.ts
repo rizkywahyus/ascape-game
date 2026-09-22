@@ -11,7 +11,7 @@ import { parseHex } from './color'
 import type { Effects } from './effects'
 import { renderHud } from './hud'
 import { renderOverlays } from './overlays'
-import { AttractScene } from './attract/attractScene'
+import { AttractScene, type SceneArea, type SceneLabel } from './attract/attractScene'
 import { AsciiShader } from './world/asciiShader'
 import { drawMonster, drawSurvivor, RIG_SCALE, withRigTransform } from './world/rig'
 import { fill, LightMap, paintGenerators, paintOpenGate, renderMapBase, TILE_H, TILE_W } from './world/worldPainter'
@@ -115,8 +115,11 @@ export class SceneRenderer {
     this.scene.height = grid.rows
   }
 
-  /** Menu background: the scripted attract-mode scene instead of a live match. */
-  renderAttract(now: number): void {
+  /**
+   * Menu background: the scripted attract-mode scene instead of a live match. `stageCss` (a box on the page, in
+   * CSS pixels) confines it to that box, for small screens where the menu covers the whole page.
+   */
+  renderAttract(now: number, stageCss: DOMRect | null = null): void {
     this.hud.clear(null)
     const context = this.sceneContext
     context.globalCompositeOperation = 'source-over'
@@ -125,11 +128,24 @@ export class SceneRenderer {
     context.fillRect(0, 0, this.scene.width, this.scene.height)
     if (!this.shader) return
     this.attract ??= new AttractScene()
-    const labels = this.attract.paint(context, this.scene.width, this.scene.height, this.cellAspect(), now)
+    const stage = stageCss && this.sceneArea(stageCss)
+    const labels = this.attract.paint(context, this.scene.width, this.scene.height, this.cellAspect(), now, stage)
     this.shader.draw(this.scene)
+    this.drawAttractLabels(labels, stage)
+  }
+
+  /** Captions over the attract scene, kept inside the stage and skipped where they would overlap another. */
+  private drawAttractLabels(labels: readonly SceneLabel[], stage: SceneArea | null): void {
+    const first = stage ? this.hudCell(stage.x, stage.y).column : 0
+    const last = stage ? this.hudCell(stage.x + stage.width, stage.y).column - 1 : this.hud.columns - 1
+    const drawn: { row: number; from: number; to: number }[] = []
     for (const label of labels) {
       const { column, row } = this.hudCell(label.sceneX, label.sceneY)
-      this.hud.drawText(column - Math.floor(label.text.length / 2), row, label.text, label.color)
+      const from = Math.max(first, Math.min(column - Math.floor(label.text.length / 2), last - label.text.length + 1))
+      const to = from + label.text.length - 1
+      if (drawn.some((other) => other.row === row && other.from <= to && from <= other.to)) continue
+      drawn.push({ row, from, to })
+      this.hud.drawText(from, row, label.text, label.color)
     }
   }
 
@@ -405,6 +421,17 @@ export class SceneRenderer {
   // ------------------------------------------------------------------ text labels (HUD layer)
 
   /** Maps a scene pixel to a HUD grid cell (the two layers have different glyph sizes). */
+  /** A box in CSS pixels → the same box in scene pixels (one per world character cell). */
+  private sceneArea(boxCss: DOMRect): SceneArea {
+    const cell = this.shader!.cellSizeCss()
+    return {
+      x: Math.round(boxCss.x / cell.width),
+      y: Math.round(boxCss.y / cell.height),
+      width: Math.round(boxCss.width / cell.width),
+      height: Math.round(boxCss.height / cell.height),
+    }
+  }
+
   private hudCell(sceneX: number, sceneY: number): { column: number; row: number } {
     const world = this.shader!.cellSizeCss()
     const hud = this.hud.cellSizeCss()
