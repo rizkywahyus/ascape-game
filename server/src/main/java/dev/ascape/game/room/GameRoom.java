@@ -54,7 +54,7 @@ public final class GameRoom {
 
 	/** Room state for the matchmaker, published by the room thread every tick. */
 	public record Status(Phase phase, int members, boolean botMonster, boolean botSurvivor,
-			Set<String> reservedPlayerIds, boolean held) {
+			Set<String> reservedPlayerIds) {
 	}
 
 	public static final int CAPACITY = 5;
@@ -122,13 +122,13 @@ public final class GameRoom {
 	private Instant matchStartedAt;
 	private long tick;
 	private long countdownTicks = -1;
-	/** Lobby countdown frozen by a player, so friends can join with the room code before the match starts. */
+	/** Lobby countdown frozen by the host, so friends can join with the room code before the match starts. */
 	private boolean held;
 	private long resultTicks;
 	private long nextStatusTick;
 
 	// Read by other threads.
-	private volatile Status status = new Status(Phase.LOBBY, 0, false, false, Set.of(), false);
+	private volatile Status status = new Status(Phase.LOBBY, 0, false, false, Set.of());
 	private volatile long emptySinceNanos = System.nanoTime();
 
 	GameRoom(String id, TileMap map, GameRules rules, Difficulty botDifficulty, boolean botDebugView,
@@ -321,9 +321,9 @@ public final class GameRoom {
 
 	// ---------------------------------------------------------------- lobby
 
-	/** Any player in the lobby may freeze the countdown; the room then also drops out of matchmaking. */
+	/** Only the host may freeze the countdown; others keep arriving meanwhile, from the code or matchmaking. */
 	private void handleHold(ClientConnection connection, boolean hold) {
-		if (phase != Phase.LOBBY || held == hold || !members.containsKey(connection)) {
+		if (phase != Phase.LOBBY || held == hold || !connection.equals(host())) {
 			return;
 		}
 		held = hold;
@@ -360,12 +360,18 @@ public final class GameRoom {
 		}
 	}
 
+	/** The longest-present player in the room; members keep insertion order. */
+	private ClientConnection host() {
+		return members.keySet().stream().findFirst().orElse(null);
+	}
+
 	private void sendLobbyStatus() {
 		long startsInMs = Math.max(0, countdownTicks) * 1000 / rules.tickRate();
 		for (Member recipient : members.values()) {
+			ClientConnection host = host();
 			List<ServerMessages.LobbySlot> slots = members.values().stream()
 					.map(m -> new ServerMessages.LobbySlot(m.connection.displayName(), m.rolePref.wireName(), false,
-							m == recipient))
+							m == recipient, m.connection.equals(host)))
 					.toList();
 			recipient.connection.send(new ServerMessages.Lobby(id, slots, CAPACITY, startsInMs, held));
 			recipient.lobbyDirty = false;
@@ -605,7 +611,7 @@ public final class GameRoom {
 		if (count == 0 && status.members() > 0) {
 			emptySinceNanos = System.nanoTime();
 		}
-		status = new Status(phase, count, botMonster, botSurvivor, Set.copyOf(reservedSeats.keySet()), held);
+		status = new Status(phase, count, botMonster, botSurvivor, Set.copyOf(reservedSeats.keySet()));
 	}
 
 	private void broadcast(ServerMessage message) {

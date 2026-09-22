@@ -23,10 +23,11 @@ public final class ServerMessages {
 		}
 	}
 
-	public record LobbySlot(String name, String rolePref, boolean isBot, boolean you) {
+	/** {@code host}: the player who may hold and resume the countdown (the first one in the room). */
+	public record LobbySlot(String name, String rolePref, boolean isBot, boolean you, boolean host) {
 	}
 
-	/** {@code held}: the countdown is frozen and the room is hidden from matchmaking until someone resumes it. */
+	/** {@code held}: the countdown is frozen until the host resumes it; players may still join meanwhile. */
 	public record Lobby(String roomId, List<LobbySlot> members, int capacity, long startsInMs, boolean held)
 			implements ServerMessage {
 

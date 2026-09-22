@@ -59,10 +59,10 @@ export interface WelcomePayload {
 export interface LobbyPayload {
   /** Also the room code players share to join this room. */
   roomId: string
-  members: { name: string; rolePref: RolePreference; isBot: boolean; you: boolean }[]
+  members: { name: string; rolePref: RolePreference; isBot: boolean; you: boolean; host: boolean }[]
   capacity: number
   startsInMs: number
-  /** The countdown is frozen and the room is hidden from matchmaking. */
+  /** The countdown is frozen until the host resumes it; players may still join meanwhile. */
   held: boolean
 }
 export interface RosterEntry {

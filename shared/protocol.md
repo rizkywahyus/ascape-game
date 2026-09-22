@@ -31,8 +31,9 @@ Related shared files:
 `lobby` (countdown, humans gather) → `playing` → `endgame` (gate open, collapse timer) → `result` → `lobby` …
 
 - **Room code**: `roomId` is the code players share; a friend joins that room with `join`.
-- **Hold**: any player in a lobby may `hold` it. The countdown freezes and the room is skipped by matchmaking, so
-  only players with the code arrive; resuming restarts the countdown from where it stopped.
+- **Hold**: the host (the player who has been in the room longest) may `hold` the lobby: the countdown freezes
+  until they resume it, and it then continues from where it stopped. Others keep arriving meanwhile, whether from
+  the code or from matchmaking; `hold` from anyone else is ignored. The match starts when the countdown runs out.
 - When the lobby countdown ends, roles are assigned: the monster goes to a player who prefers it (else `any`,
   else a bot); everyone else becomes a survivor; empty slots (1 monster + 4 survivors) are filled with bots.
 - **Drop-in**: joining a running match takes over a bot (preferred role if possible), else spectates.
@@ -48,7 +49,7 @@ Related shared files:
 | `leave` | `{}`                                                           | leave the current room |
 | `input` | `{ seq, dx, dy, sprint, interact, actions: [], viewTick }`     | one message per client tick, see below |
 | `chat`  | `{ text }`                                                     | 1–200 chars |
-| `hold`  | `{ hold }`                                                     | lobby only; freezes or resumes the countdown |
+| `hold`  | `{ hold }`                                                     | lobby host only; freezes or resumes the countdown |
 | `ping`  | `{ ts }`                                                       | client clock, echoed back in `pong` |
 
 ### `input`
@@ -77,7 +78,7 @@ Related shared files:
 | type       | payload | notes |
 |------------|---------|-------|
 | `welcome`  | `{ playerId, roomId, tickRate, serverTick, map: { id, rows: [] } }` | after joining a room |
-| `lobby`    | `{ roomId, members: [{ name, rolePref, isBot, you }], capacity, startsInMs, held }` | lobby phase, on change and every second |
+| `lobby`    | `{ roomId, members: [{ name, rolePref, isBot, you, host }], capacity, startsInMs, held }` | lobby phase, on change and every second |
 | `match`    | see below | on start, on every event, every second |
 | `snapshot` | see below | every tick while a match runs |
 | `event`    | `{ kind, data: { … } }` | see event kinds |

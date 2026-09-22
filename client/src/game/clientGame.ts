@@ -136,12 +136,17 @@ export class ClientGame {
     return this.match?.role ?? null
   }
 
+  /** True while we are the lobby's host, the only player who may hold the countdown. */
+  isHost(): boolean {
+    return this.lobby?.members.some((member) => member.you && member.host) ?? false
+  }
+
   /**
    * Freezes or resumes the lobby countdown on the server, so a group can gather with the room code before the
-   * match starts. Ignored outside the lobby.
+   * match starts. Ignored outside the lobby and for everyone but the host.
    */
   setHold(hold: boolean): void {
-    if (this.phase !== 'lobby') return
+    if (this.phase !== 'lobby' || !this.isHost()) return
     this.socket.send('hold', { hold })
   }
 

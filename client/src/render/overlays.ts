@@ -52,15 +52,17 @@ function renderLobby(grid: AsciiGrid, game: ClientGame, now: number): void {
     { text: 'share it — friends join with it from the menu', color: DIM },
     { text: '' },
     ...lobby.members.map((member) => ({
-      text: `${member.you ? '▸' : ' '} ${member.name.padEnd(18)} wants ${member.rolePref}`,
+      text: `${member.you ? '▸' : ' '} ${member.name.padEnd(18)} wants ${member.rolePref}${member.host ? '  (host)' : ''}`,
       color: member.you ? TITLE : TEXT,
     })),
     ...Array.from({ length: lobby.capacity - lobby.members.length }, () => ({ text: '  · open slot (bot)', color: DIM })),
     { text: '' },
     lobby.held
-      ? { text: 'countdown held — waiting for players', color: SKILL_WAIT_COLOR }
+      ? { text: 'countdown held by the host — waiting for players', color: SKILL_WAIT_COLOR }
       : { text: `match starts in ${startsIn}s — bots fill empty slots`, color: Palette.hudOk },
-    { text: lobby.held ? 'H: start the countdown' : 'H: hold the countdown', color: DIM },
+    game.isHost()
+      ? { text: lobby.held ? 'H: start the countdown' : 'H: hold the countdown', color: DIM }
+      : { text: 'only the host can hold the countdown', color: DIM },
   ]
   box(grid, 'lobby', lines)
 }

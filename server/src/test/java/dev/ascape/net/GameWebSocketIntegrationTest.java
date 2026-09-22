@@ -97,15 +97,24 @@ class GameWebSocketIntegrationTest {
 	}
 
 	@Test
-	void holdingTheLobbyStopsTheCountdownUntilItIsResumed() throws Exception {
-		try (TestGameClient host = connect()) {
+	void onlyTheHostHoldsTheLobbyAndOthersMayStillJoinIt() throws Exception {
+		try (TestGameClient host = connect(); TestGameClient guest = connect()) {
 			host.send("join", Map.of("roomId", "hold-test", "rolePref", "survivor"));
 			host.await("welcome", TIMEOUT);
 			host.send("hold", Map.of("hold", true));
 			assertThat(host.await("lobby", l -> l.get("held").asBoolean(), TIMEOUT).get("roomId").asString())
 					.isEqualTo("hold-test");
 
-			// The countdown is 0.2 s in tests, so a second of held lobby messages proves nothing started.
+			// Someone joining a held lobby neither starts the countdown nor becomes the host.
+			guest.send("join", Map.of("roomId", "hold-test", "rolePref", "survivor"));
+			JsonNode lobby = guest.await("lobby", l -> l.get("members").size() == 2, TIMEOUT);
+			assertThat(lobby.get("held").asBoolean()).isTrue();
+			for (JsonNode slot : lobby.get("members")) {
+				assertThat(slot.get("host").asBoolean()).isEqualTo(!slot.get("you").asBoolean());
+			}
+
+			// A non-host cannot resume; the countdown (0.2 s in tests) stays frozen.
+			guest.send("hold", Map.of("hold", false));
 			long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
 			while (System.nanoTime() < deadline) {
 				assertThat(host.await("lobby", TIMEOUT).get("held").asBoolean()).isTrue();
@@ -113,6 +122,7 @@ class GameWebSocketIntegrationTest {
 
 			host.send("hold", Map.of("hold", false));
 			assertThat(host.await("match", TIMEOUT).get("role").asString()).isEqualTo("survivor");
+			guest.await("match", TIMEOUT);
 		}
 	}
 

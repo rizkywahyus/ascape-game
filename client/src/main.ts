@@ -178,7 +178,8 @@ async function start(): Promise<void> {
     const presses = keyboard.consumePresses()
     touch.setMode(touchModeOf(session))
     const lobby = session?.game.phase === 'lobby' ? session.game.lobby : null
-    touch.setHoldState(lobby ? lobby.held : null)
+    // Only the host gets the hold button; for everyone else the countdown is out of their hands.
+    touch.setHoldState(lobby && session?.game.isHost() ? lobby.held : null)
     renderer.touchUi = touch.active
     if (session && presses.has(LEAVE_KEY)) leaveGame()
     if (session && lobby && presses.has(HOLD_KEY)) session.game.setHold(!lobby.held)

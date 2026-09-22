@@ -136,8 +136,6 @@ public class RoomManager implements DisposableBean {
 	private java.util.stream.Stream<GameRoom> openRooms() {
 		return rooms.values().stream()
 				.filter(room -> room.id().startsWith(MATCHMADE_ROOM_PREFIX))
-				// A held lobby is waiting for friends with the room code; keep strangers out of it.
-				.filter(room -> !room.status().held())
 				.filter(room -> room.playerCount() + room.pendingJoins() < GameRoom.CAPACITY);
 	}
 
