@@ -4,6 +4,7 @@ import java.util.Map;
 
 import dev.ascape.net.protocol.ClientMessages.ChatSend;
 import dev.ascape.net.protocol.ClientMessages.ClientMessage;
+import dev.ascape.net.protocol.ClientMessages.Hold;
 import dev.ascape.net.protocol.ClientMessages.Input;
 import dev.ascape.net.protocol.ClientMessages.Join;
 import dev.ascape.net.protocol.ClientMessages.Leave;
@@ -25,6 +26,7 @@ public class ProtocolCodec {
 			"leave", Leave.class,
 			"input", Input.class,
 			"chat", ChatSend.class,
+			"hold", Hold.class,
 			"ping", Ping.class);
 
 	private final JsonMapper jsonMapper;

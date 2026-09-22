@@ -48,7 +48,8 @@ function renderLobby(grid: AsciiGrid, game: ClientGame, now: number): void {
   }
   const startsIn = Math.max(0, Math.ceil((lobby.startsInMs - (now - game.lobbyReceivedAtMs)) / 1000))
   const lines: Line[] = [
-    { text: `room ${lobby.roomId}`, color: DIM },
+    { text: `room code  ${lobby.roomId}`, color: TITLE },
+    { text: 'share it — friends join with it from the menu', color: DIM },
     { text: '' },
     ...lobby.members.map((member) => ({
       text: `${member.you ? '▸' : ' '} ${member.name.padEnd(18)} wants ${member.rolePref}`,
@@ -56,7 +57,10 @@ function renderLobby(grid: AsciiGrid, game: ClientGame, now: number): void {
     })),
     ...Array.from({ length: lobby.capacity - lobby.members.length }, () => ({ text: '  · open slot (bot)', color: DIM })),
     { text: '' },
-    { text: `match starts in ${startsIn}s — bots fill empty slots`, color: Palette.hudOk },
+    lobby.held
+      ? { text: 'countdown held — waiting for players', color: SKILL_WAIT_COLOR }
+      : { text: `match starts in ${startsIn}s — bots fill empty slots`, color: Palette.hudOk },
+    { text: lobby.held ? 'H: start the countdown' : 'H: hold the countdown', color: DIM },
   ]
   box(grid, 'lobby', lines)
 }

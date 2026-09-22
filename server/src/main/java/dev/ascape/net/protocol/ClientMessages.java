@@ -8,7 +8,7 @@ public final class ClientMessages {
 	private ClientMessages() {
 	}
 
-	public sealed interface ClientMessage permits Queue, Join, Leave, Input, ChatSend, Ping {
+	public sealed interface ClientMessage permits Queue, Join, Leave, Input, ChatSend, Hold, Ping {
 	}
 
 	/** Matchmaking: find (or create) a room. {@code rolePref} is monster, survivor or any. */
@@ -33,6 +33,10 @@ public final class ClientMessages {
 	}
 
 	public record ChatSend(String text) implements ClientMessage {
+	}
+
+	/** Freezes ({@code true}) or resumes the lobby countdown, so a group can gather before the match starts. */
+	public record Hold(boolean hold) implements ClientMessage {
 	}
 
 	public record Ping(long ts) implements ClientMessage {

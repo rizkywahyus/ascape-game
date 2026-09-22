@@ -136,6 +136,15 @@ export class ClientGame {
     return this.match?.role ?? null
   }
 
+  /**
+   * Freezes or resumes the lobby countdown on the server, so a group can gather with the room code before the
+   * match starts. Ignored outside the lobby.
+   */
+  setHold(hold: boolean): void {
+    if (this.phase !== 'lobby') return
+    this.socket.send('hold', { hold })
+  }
+
   /** Records one-shot key presses; they go out with the next input. */
   queuePresses(codes: ReadonlySet<string>): void {
     const role = this.role()

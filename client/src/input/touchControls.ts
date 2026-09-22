@@ -38,6 +38,8 @@ const FAN_TO_DEGREES = 270
 export interface TouchCallbacks {
   onMenu(): void
   onZoom(step: number): void
+  /** Freeze or resume the lobby countdown (the keyboard's H). */
+  onHold(hold: boolean): void
 }
 
 /** True on phones and tablets: their primary pointer is a finger. */
@@ -58,6 +60,8 @@ export class TouchControls {
   private readonly stickBase: HTMLElement
   private readonly stickKnob: HTMLElement
   private readonly buttons: HTMLElement
+  private readonly holdButton: HTMLElement
+  private lobbyHeld: boolean | null = null
   private mode: TouchMode = 'hidden'
   private stickPointer: number | null = null
   private stickOrigin = { x: 0, y: 0 }
@@ -75,12 +79,15 @@ export class TouchControls {
     stickZone.append(this.stickBase)
     this.buttons = element('div', 'touch-buttons')
     const top = element('div', 'touch-top')
+    this.holdButton = this.tapButton('⏸ hold', () => callbacks.onHold(!this.lobbyHeld))
+    this.holdButton.hidden = true
     top.append(
       this.tapButton('≡ menu', () => {
         if (this.mode === 'waiting' || confirm('Leave the match?')) callbacks.onMenu()
       }),
       this.tapButton('−', () => callbacks.onZoom(-1)),
       this.tapButton('+', () => callbacks.onZoom(1)),
+      this.holdButton,
     )
     const rotateHint = element('div', 'touch-rotate')
     rotateHint.textContent = 'turn your phone sideways for a wider view'
@@ -103,6 +110,14 @@ export class TouchControls {
     this.buttons.replaceChildren(...(mode === 'survivor' || mode === 'monster' ? this.actionButtons(BUTTONS[mode]) : []))
     this.stickBase.parentElement!.hidden = mode === 'waiting'
     this.show()
+  }
+
+  /** `held` from the lobby, or null outside it: hides the button. */
+  setHoldState(held: boolean | null): void {
+    if (held === this.lobbyHeld) return
+    this.lobbyHeld = held
+    this.holdButton.hidden = held === null
+    this.holdButton.textContent = held ? '▶ start' : '⏸ hold'
   }
 
   private show(): void {

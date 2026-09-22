@@ -40,6 +40,8 @@ const CRT_TOGGLE_KEY = 'F2'
 const MUTE_KEY = 'KeyM'
 const CRT_CLASS = 'crt'
 const LEAVE_KEY = 'Escape'
+/** Freezes the lobby countdown so friends can join with the room code. */
+const HOLD_KEY = 'KeyH'
 
 interface GameSession {
   readonly socket: GameSocket
@@ -118,6 +120,7 @@ async function start(): Promise<void> {
   const touch = new TouchControls(keyboard, {
     onMenu: () => leaveGame(),
     onZoom: (step) => zoom(step),
+    onHold: (hold) => session?.game.setHold(hold),
   })
   let rolePreference: RolePreference = 'any'
 
@@ -125,9 +128,9 @@ async function start(): Promise<void> {
     ui.hidden = false
     if (auth.enabled && !(await auth.restore())) await showAuthScreen(ui, auth)
     showLobbyScreen(ui, api, auth.enabled, rolePreference, {
-      onPlay: (role) => {
+      onPlay: (role, roomCode) => {
         rolePreference = role
-        startGame()
+        startGame(roomCode)
       },
       onSignOut: async () => {
         await auth.signOut()
@@ -136,11 +139,11 @@ async function start(): Promise<void> {
     })
   }
 
-  const startGame = () => {
+  const startGame = (roomCode: string | null = null) => {
     audio.unlock() // runs inside the "Find match" click, which browsers require for audio
     ui.hidden = true
     const socket = new GameSocket(() => gameSocketUrl(auth.accessToken()))
-    const game = new ClientGame(socket, keyboard, rolePreference, roomFromUrl())
+    const game = new ClientGame(socket, keyboard, rolePreference, roomCode ?? roomFromUrl())
     effects.attach(game)
     audio.attach(game)
     renderer.attach(game)
@@ -174,8 +177,11 @@ async function start(): Promise<void> {
   const frame = (now: number) => {
     const presses = keyboard.consumePresses()
     touch.setMode(touchModeOf(session))
+    const lobby = session?.game.phase === 'lobby' ? session.game.lobby : null
+    touch.setHoldState(lobby ? lobby.held : null)
     renderer.touchUi = touch.active
     if (session && presses.has(LEAVE_KEY)) leaveGame()
+    if (session && lobby && presses.has(HOLD_KEY)) session.game.setHold(!lobby.held)
     if (session) {
       if (presses.has(DEBUG_TOGGLE_KEY)) debugOverlay.visible = !debugOverlay.visible
       if (presses.has(BOT_DEBUG_TOGGLE_KEY)) renderer.showBotDebug = !renderer.showBotDebug

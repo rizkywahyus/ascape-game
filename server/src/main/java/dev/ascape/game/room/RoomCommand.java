@@ -17,4 +17,7 @@ sealed interface RoomCommand {
 
 	record Chat(ClientConnection connection, String text) implements RoomCommand {
 	}
+
+	record Hold(ClientConnection connection, boolean hold) implements RoomCommand {
+	}
 }

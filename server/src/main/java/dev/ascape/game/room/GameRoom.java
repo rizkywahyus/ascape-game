@@ -54,7 +54,7 @@ public final class GameRoom {
 
 	/** Room state for the matchmaker, published by the room thread every tick. */
 	public record Status(Phase phase, int members, boolean botMonster, boolean botSurvivor,
-			Set<String> reservedPlayerIds) {
+			Set<String> reservedPlayerIds, boolean held) {
 	}
 
 	public static final int CAPACITY = 5;
@@ -122,11 +122,13 @@ public final class GameRoom {
 	private Instant matchStartedAt;
 	private long tick;
 	private long countdownTicks = -1;
+	/** Lobby countdown frozen by a player, so friends can join with the room code before the match starts. */
+	private boolean held;
 	private long resultTicks;
 	private long nextStatusTick;
 
 	// Read by other threads.
-	private volatile Status status = new Status(Phase.LOBBY, 0, false, false, Set.of());
+	private volatile Status status = new Status(Phase.LOBBY, 0, false, false, Set.of(), false);
 	private volatile long emptySinceNanos = System.nanoTime();
 
 	GameRoom(String id, TileMap map, GameRules rules, Difficulty botDifficulty, boolean botDebugView,
@@ -194,6 +196,10 @@ public final class GameRoom {
 		commands.add(new RoomCommand.Chat(connection, text));
 	}
 
+	public void submitHold(ClientConnection connection, boolean hold) {
+		commands.add(new RoomCommand.Hold(connection, hold));
+	}
+
 	// ---------------------------------------------------------------- loop
 
 	private void runTick() {
@@ -233,6 +239,7 @@ public final class GameRoom {
 				case RoomCommand.ApplyInput apply -> handleInput(apply.connection(), apply.input());
 				case RoomCommand.Chat chat -> broadcast(new ServerMessages.Chat(chat.connection().displayName(),
 						chat.text(), System.currentTimeMillis()));
+				case RoomCommand.Hold hold -> handleHold(hold.connection(), hold.hold());
 			}
 		}
 	}
@@ -314,14 +321,32 @@ public final class GameRoom {
 
 	// ---------------------------------------------------------------- lobby
 
+	/** Any player in the lobby may freeze the countdown; the room then also drops out of matchmaking. */
+	private void handleHold(ClientConnection connection, boolean hold) {
+		if (phase != Phase.LOBBY || held == hold || !members.containsKey(connection)) {
+			return;
+		}
+		held = hold;
+		log.info("Room {} countdown {} by {}", id, hold ? "held" : "resumed", connection.playerId());
+		markLobbyDirty();
+	}
+
 	private void tickLobby() {
 		if (members.isEmpty()) {
 			countdownTicks = -1;
+			held = false;
 			return;
 		}
 		if (countdownTicks < 0) {
 			countdownTicks = rules.ticks(rules.match().lobbyCountdownSeconds());
 			markLobbyDirty();
+		}
+		if (held) {
+			// Frozen: keep showing the lobby (and the room code) until a player resumes.
+			if (tick >= nextStatusTick || members.values().stream().anyMatch(m -> m.lobbyDirty)) {
+				sendLobbyStatus();
+			}
+			return;
 		}
 		if (members.size() >= CAPACITY) {
 			countdownTicks = Math.min(countdownTicks, rules.ticks(rules.match().fullLobbyCountdownSeconds()));
@@ -342,7 +367,7 @@ public final class GameRoom {
 					.map(m -> new ServerMessages.LobbySlot(m.connection.displayName(), m.rolePref.wireName(), false,
 							m == recipient))
 					.toList();
-			recipient.connection.send(new ServerMessages.Lobby(id, slots, CAPACITY, startsInMs));
+			recipient.connection.send(new ServerMessages.Lobby(id, slots, CAPACITY, startsInMs, held));
 			recipient.lobbyDirty = false;
 		}
 		nextStatusTick = tick + rules.ticks(STATUS_BROADCAST_SECONDS);
@@ -580,7 +605,7 @@ public final class GameRoom {
 		if (count == 0 && status.members() > 0) {
 			emptySinceNanos = System.nanoTime();
 		}
-		status = new Status(phase, count, botMonster, botSurvivor, Set.copyOf(reservedSeats.keySet()));
+		status = new Status(phase, count, botMonster, botSurvivor, Set.copyOf(reservedSeats.keySet()), held);
 	}
 
 	private void broadcast(ServerMessage message) {

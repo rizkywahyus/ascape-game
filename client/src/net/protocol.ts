@@ -40,6 +40,8 @@ export interface ClientMessages {
   input: InputPayload
   ping: { ts: number }
   chat: { text: string }
+  /** Freeze or resume the lobby countdown while a group gathers. */
+  hold: { hold: boolean }
 }
 
 // Server → client
@@ -55,10 +57,13 @@ export interface WelcomePayload {
   map: MapData
 }
 export interface LobbyPayload {
+  /** Also the room code players share to join this room. */
   roomId: string
   members: { name: string; rolePref: RolePreference; isBot: boolean; you: boolean }[]
   capacity: number
   startsInMs: number
+  /** The countdown is frozen and the room is hidden from matchmaking. */
+  held: boolean
 }
 export interface RosterEntry {
   entityId: number

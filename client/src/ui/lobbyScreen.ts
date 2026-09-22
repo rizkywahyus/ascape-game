@@ -4,9 +4,13 @@ import { errorText } from './authScreen'
 import { el, howItWorks, menuHeader, panel } from './dom'
 
 export interface LobbyCallbacks {
-  onPlay(rolePreference: RolePreference): void
+  /** `roomCode` joins that room instead of matchmaking (a friend's lobby). */
+  onPlay(rolePreference: RolePreference, roomCode: string | null): void
   onSignOut(): void
 }
+
+/** Room codes are room ids: what the server accepts as [a-z0-9-]{1,32}. */
+const ROOM_CODE = /^[a-z0-9-]{1,32}$/
 
 const ROLE_LABELS: Record<RolePreference, string> = {
   survivor: '@ survivor',
@@ -40,7 +44,24 @@ export function showLobbyScreen(
     return button
   })
   const playButton = el('button', { class: 'primary' }, 'Find match ▶')
-  playButton.addEventListener('click', () => callbacks.onPlay(role))
+  playButton.addEventListener('click', () => callbacks.onPlay(role, null))
+
+  const codeInput = el('input', { maxlength: '32', placeholder: 'room code', 'aria-label': 'room code' })
+  const codeMessage = el('p', { class: 'message' }, '')
+  const joinByCode = () => {
+    const code = codeInput.value.trim().toLowerCase()
+    if (!ROOM_CODE.test(code)) {
+      codeMessage.textContent = 'A room code is 1-32 characters: letters, digits or "-".'
+      codeMessage.className = 'message error'
+      return
+    }
+    callbacks.onPlay(role, code)
+  }
+  const joinButton = el('button', {}, 'Join ▶')
+  joinButton.addEventListener('click', joinByCode)
+  codeInput.addEventListener('keydown', (event) => {
+    if ((event as KeyboardEvent).key === 'Enter') joinByCode()
+  })
 
   const signOut = el('button', {}, signedIn ? 'Sign out' : 'Back')
   signOut.addEventListener('click', () => callbacks.onSignOut())
@@ -59,6 +80,9 @@ export function showLobbyScreen(
           el('p', { class: 'hint' }, 'preferred role (bots fill the other slots):'),
           el('div', { class: 'row' }, ...roleButtons),
           el('div', { class: 'row', style: 'margin-top: 12px' }, playButton, signOut),
+          el('p', { class: 'hint', style: 'margin-top: 14px' }, 'or join a friend: they hold their lobby and share its code.'),
+          el('div', { class: 'row' }, codeInput, joinButton),
+          codeMessage,
           el(
             'p',
             { class: 'hint touch-only' },

@@ -97,6 +97,26 @@ class GameWebSocketIntegrationTest {
 	}
 
 	@Test
+	void holdingTheLobbyStopsTheCountdownUntilItIsResumed() throws Exception {
+		try (TestGameClient host = connect()) {
+			host.send("join", Map.of("roomId", "hold-test", "rolePref", "survivor"));
+			host.await("welcome", TIMEOUT);
+			host.send("hold", Map.of("hold", true));
+			assertThat(host.await("lobby", l -> l.get("held").asBoolean(), TIMEOUT).get("roomId").asString())
+					.isEqualTo("hold-test");
+
+			// The countdown is 0.2 s in tests, so a second of held lobby messages proves nothing started.
+			long deadline = System.nanoTime() + Duration.ofSeconds(1).toNanos();
+			while (System.nanoTime() < deadline) {
+				assertThat(host.await("lobby", TIMEOUT).get("held").asBoolean()).isTrue();
+			}
+
+			host.send("hold", Map.of("hold", false));
+			assertThat(host.await("match", TIMEOUT).get("role").asString()).isEqualTo("survivor");
+		}
+	}
+
+	@Test
 	void teammatesSeeEachOtherMove() throws Exception {
 		try (TestGameClient mover = connect(); TestGameClient watcher = connect()) {
 			mover.send("join", Map.of("roomId", "move-test", "rolePref", "survivor"));

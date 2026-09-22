@@ -26,7 +26,8 @@ public final class ServerMessages {
 	public record LobbySlot(String name, String rolePref, boolean isBot, boolean you) {
 	}
 
-	public record Lobby(String roomId, List<LobbySlot> members, int capacity, long startsInMs)
+	/** {@code held}: the countdown is frozen and the room is hidden from matchmaking until someone resumes it. */
+	public record Lobby(String roomId, List<LobbySlot> members, int capacity, long startsInMs, boolean held)
 			implements ServerMessage {
 
 		@Override

@@ -9,6 +9,7 @@ import dev.ascape.game.room.RolePreference;
 import dev.ascape.game.room.RoomManager;
 import dev.ascape.net.protocol.ClientMessages.ChatSend;
 import dev.ascape.net.protocol.ClientMessages.ClientMessage;
+import dev.ascape.net.protocol.ClientMessages.Hold;
 import dev.ascape.net.protocol.ClientMessages.Input;
 import dev.ascape.net.protocol.ClientMessages.Join;
 import dev.ascape.net.protocol.ClientMessages.Leave;
@@ -106,6 +107,7 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 				roomManager.join(connection, join.roomId(), rolePreference(join.rolePref()));
 			}
 			case Leave leave -> roomManager.leave(connection);
+			case Hold hold -> requireRoom(connection).submitHold(connection, hold.hold());
 			case Input input -> {
 				if (input.seq() <= 0) {
 					throw new ProtocolException("bad_message", "seq must be positive");
