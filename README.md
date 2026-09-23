@@ -25,7 +25,7 @@ players who drop out.
 - **Attract mode**: the menu floats over a scripted scene rendered by the same ASCII pipeline — survivors repair a
   generator, the monster creeps out of the dark, strikes, and the chase begins — with captions, so visitors grasp
   the game before pressing play.
-- **Matchmaking** with role preference, bot fill, drop-in over bots and 30 s reconnect grace.
+- **Matchmaking** into lobbies only, honouring the monster preference, with bot fill and 30 s reconnect grace.
 - **Image-to-ASCII renderer**: the world is painted as a small picture (1 pixel per character cell: brick walls,
   lit floor, machines, and characters drawn as shaded, animated vector rigs — a walking/sprinting survivor and a
   hunched horned monster with glowing eyes), multiplied by a smoothly interpolated light map, then converted to

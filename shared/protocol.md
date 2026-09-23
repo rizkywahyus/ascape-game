@@ -36,9 +36,13 @@ Related shared files:
   the code or from matchmaking; `hold` from anyone else is ignored. The match starts when the countdown runs out.
 - When the lobby countdown ends, roles are assigned: the monster goes to a player who prefers it (else `any`,
   else a bot); everyone else becomes a survivor; empty slots (1 monster + 4 survivors) are filled with bots.
-- **Drop-in**: joining a running match takes over a bot (preferred role if possible), else spectates.
+- **Matchmaking** only ever puts a player in a lobby that has not started: a match under way is never joined, and
+  a lobby is skipped when the newcomer wants the monster and someone there already asked for it. Otherwise the
+  player opens a room of their own. Rooms are independent, so matches run side by side.
+- Joining a running match **by room code** means watching until the next lobby.
 - **Drop-out**: a disconnected player's character is driven by a bot at once; the same player can reclaim it
-  within 30 s (matchmaking routes them back).
+  within 30 s (matchmaking routes them back). Leaving on purpose (`leave`) keeps no seat, so the next `queue`
+  looks for a fresh lobby instead.
 
 ## Client → Server
 

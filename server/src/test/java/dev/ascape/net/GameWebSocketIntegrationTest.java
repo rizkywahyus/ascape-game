@@ -157,18 +157,50 @@ class GameWebSocketIntegrationTest {
 	}
 
 	@Test
-	void queueMatchmakesIntoTheSameRoomAndDropsInOverBots() throws Exception {
+	void queueOpensANewRoomRatherThanJoiningAMatchInProgress() throws Exception {
 		try (TestGameClient first = connect(); TestGameClient second = connect()) {
 			first.send("queue", Map.of("rolePref", "survivor"));
-			String roomId = first.await("welcome", TIMEOUT).get("roomId").asString();
+			String started = first.await("welcome", TIMEOUT).get("roomId").asString();
 			first.await("match", TIMEOUT);
 
-			// The match is running with bot survivors, so the next survivor drops in over one of them.
+			// That match is under way, so the latecomer gets a lobby of their own instead of dropping in.
 			second.send("queue", Map.of("rolePref", "survivor"));
-			assertThat(second.await("welcome", TIMEOUT).get("roomId").asString()).isEqualTo(roomId);
-			JsonNode takeover = second.await("takeover", TIMEOUT);
-			assertThat(takeover.get("reason").asString()).isEqualTo("took over a bot");
+			assertThat(second.await("welcome", TIMEOUT).get("roomId").asString()).isNotEqualTo(started);
 			assertThat(second.await("match", TIMEOUT).get("role").asString()).isEqualTo("survivor");
+		}
+	}
+
+	@Test
+	void leavingAMatchOnPurposeGivesUpTheSeat() throws Exception {
+		try (TestGameClient player = connect()) {
+			player.send("queue", Map.of("rolePref", "survivor"));
+			String left = player.await("welcome", TIMEOUT).get("roomId").asString();
+			player.await("match", TIMEOUT);
+
+			// Unlike a dropped connection, leaving keeps no seat: matchmaking must not send them back in.
+			player.send("leave", Map.of());
+			player.send("queue", Map.of("rolePref", "survivor"));
+			assertThat(player.await("welcome", TIMEOUT).get("roomId").asString()).isNotEqualTo(left);
+		}
+	}
+
+	@Test
+	void queueSkipsALobbyWhoseMonsterIsTaken() throws Exception {
+		try (TestGameClient host = connect(); TestGameClient rival = connect(); TestGameClient survivor = connect()) {
+			// Hold the lobby open; without it the countdown (0.2 s in tests) starts the match immediately.
+			host.send("queue", Map.of("rolePref", "monster"));
+			String waiting = host.await("welcome", TIMEOUT).get("roomId").asString();
+			host.send("hold", Map.of("hold", true));
+			host.await("lobby", l -> l.get("held").asBoolean(), TIMEOUT);
+
+			rival.send("queue", Map.of("rolePref", "monster"));
+			assertThat(rival.await("welcome", TIMEOUT).get("roomId").asString())
+					.as("two players wanting the monster do not share a lobby").isNotEqualTo(waiting);
+			rival.await("match", TIMEOUT); // their own match starts, leaving the held lobby the only one open
+
+			survivor.send("queue", Map.of("rolePref", "survivor"));
+			assertThat(survivor.await("welcome", TIMEOUT).get("roomId").asString())
+					.as("a survivor still fills the waiting lobby").isEqualTo(waiting);
 		}
 	}
 

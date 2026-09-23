@@ -3,7 +3,6 @@ package dev.ascape.game.room;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,9 +51,11 @@ public final class GameRoom {
 		LOBBY, PLAYING, RESULT
 	}
 
-	/** Room state for the matchmaker, published by the room thread every tick. */
-	public record Status(Phase phase, int members, boolean botMonster, boolean botSurvivor,
-			Set<String> reservedPlayerIds) {
+	/**
+	 * Room state for the matchmaker, published by the room thread every tick. {@code monsterWanted} is true while
+	 * someone in the lobby asked to play the monster, so the matchmaker does not send a second one here.
+	 */
+	public record Status(Phase phase, int members, boolean monsterWanted, Set<String> reservedPlayerIds) {
 	}
 
 	public static final int CAPACITY = 5;
@@ -128,7 +129,7 @@ public final class GameRoom {
 	private long nextStatusTick;
 
 	// Read by other threads.
-	private volatile Status status = new Status(Phase.LOBBY, 0, false, false, Set.of());
+	private volatile Status status = new Status(Phase.LOBBY, 0, false, Set.of());
 	private volatile long emptySinceNanos = System.nanoTime();
 
 	GameRoom(String id, TileMap map, GameRules rules, Difficulty botDifficulty, boolean botDebugView,
@@ -184,8 +185,14 @@ public final class GameRoom {
 		commands.add(new RoomCommand.Join(connection, rolePref));
 	}
 
+	/** A deliberate leave: the player's character is handed to a bot for good, so matchmaking sends them elsewhere. */
 	public void submitLeave(ClientConnection connection) {
-		commands.add(new RoomCommand.Leave(connection));
+		commands.add(new RoomCommand.Leave(connection, false));
+	}
+
+	/** A dropped connection: the character is held for {@link #RECONNECT_GRACE_SECONDS} in case they come back. */
+	public void submitDisconnect(ClientConnection connection) {
+		commands.add(new RoomCommand.Leave(connection, true));
 	}
 
 	public void submitInput(ClientConnection connection, Input input) {
@@ -235,7 +242,7 @@ public final class GameRoom {
 		while ((command = commands.poll()) != null) {
 			switch (command) {
 				case RoomCommand.Join join -> handleJoin(join.connection(), join.rolePref());
-				case RoomCommand.Leave leave -> handleLeave(leave.connection());
+				case RoomCommand.Leave leave -> handleLeave(leave.connection(), leave.keepSeat());
 				case RoomCommand.ApplyInput apply -> handleInput(apply.connection(), apply.input());
 				case RoomCommand.Chat chat -> broadcast(new ServerMessages.Chat(chat.connection().displayName(),
 						chat.text(), System.currentTimeMillis()));
@@ -262,27 +269,17 @@ public final class GameRoom {
 		markLobbyDirty();
 	}
 
-	/** Reclaims a reserved seat, else takes over a bot of the preferred role, else spectates. */
+	/**
+	 * Reclaims the seat held for this player after a disconnect. Anyone else arriving mid-match watches until the
+	 * next lobby: taking over a bot would drop a stranger into a match already under way.
+	 */
 	private void seatMidMatch(Member member) {
 		ReservedSeat seat = reservedSeats.remove(member.connection.playerId());
-		Optional<Actor> reclaimed = Optional.ofNullable(seat)
+		Optional.ofNullable(seat)
 				.flatMap(s -> match.actor(s.actorId()))
-				.filter(actor -> actor.health().isInPlay());
-		if (reclaimed.isPresent()) {
-			takeControl(member, reclaimed.get(), "reconnected");
-			return;
-		}
-		match.actors().stream()
-				.filter(actor -> actor.health().isInPlay() && controllers.get(actor.id()) instanceof BotControl)
-				.filter(actor -> !isReserved(actor.id()))
-				.filter(actor -> member.rolePref.accepts(actor.role()))
-				.min(Comparator.comparingInt(Actor::id))
-				.ifPresentOrElse(actor -> takeControl(member, actor, "took over a bot"),
+				.filter(actor -> actor.health().isInPlay())
+				.ifPresentOrElse(actor -> takeControl(member, actor, "reconnected"),
 						() -> member.connection.send(new ServerMessages.Takeover(null, "spectating")));
-	}
-
-	private boolean isReserved(int actorId) {
-		return reservedSeats.values().stream().anyMatch(seat -> seat.actorId() == actorId);
 	}
 
 	private void takeControl(Member member, Actor actor, String reason) {
@@ -291,7 +288,7 @@ public final class GameRoom {
 		log.info("Player {} controls entity {} in room {} ({})", member.connection.playerId(), actor.id(), id, reason);
 	}
 
-	private void handleLeave(ClientConnection connection) {
+	private void handleLeave(ClientConnection connection, boolean keepSeat) {
 		Member member = members.remove(connection);
 		if (member == null) {
 			return;
@@ -300,7 +297,7 @@ public final class GameRoom {
 			Actor actor = match.actor(member.actorId).orElseThrow();
 			actor.assignController(null, true);
 			controllers.put(actor.id(), new BotControl(new Bot(botDifficulty, random.nextLong())));
-			if (actor.health().isInPlay()) {
+			if (keepSeat && actor.health().isInPlay()) {
 				reservedSeats.put(connection.playerId(),
 						new ReservedSeat(actor.id(), tick + rules.ticks(RECONNECT_GRACE_SECONDS)));
 			}
@@ -596,22 +593,13 @@ public final class GameRoom {
 	// ---------------------------------------------------------------- misc
 
 	private void publishStatus() {
-		boolean botMonster = false;
-		boolean botSurvivor = false;
-		if (phase == Phase.PLAYING) {
-			for (Map.Entry<Integer, Controller> entry : controllers.entrySet()) {
-				Actor actor = match.actor(entry.getKey()).orElseThrow();
-				if (entry.getValue() instanceof BotControl && actor.health().isInPlay() && !isReserved(actor.id())) {
-					botMonster |= actor.role() == Role.MONSTER;
-					botSurvivor |= actor.role() == Role.SURVIVOR;
-				}
-			}
-		}
+		boolean monsterWanted = phase == Phase.LOBBY
+				&& members.values().stream().anyMatch(member -> member.rolePref == RolePreference.MONSTER);
 		int count = members.size();
 		if (count == 0 && status.members() > 0) {
 			emptySinceNanos = System.nanoTime();
 		}
-		status = new Status(phase, count, botMonster, botSurvivor, Set.copyOf(reservedSeats.keySet()));
+		status = new Status(phase, count, monsterWanted, Set.copyOf(reservedSeats.keySet()));
 	}
 
 	private void broadcast(ServerMessage message) {

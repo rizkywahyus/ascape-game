@@ -9,7 +9,8 @@ sealed interface RoomCommand {
 	record Join(ClientConnection connection, RolePreference rolePref) implements RoomCommand {
 	}
 
-	record Leave(ClientConnection connection) implements RoomCommand {
+	/** {@code keepSeat}: a dropped connection may reclaim its character; someone who left on purpose may not. */
+	record Leave(ClientConnection connection, boolean keepSeat) implements RoomCommand {
 	}
 
 	record ApplyInput(ClientConnection connection, Input input) implements RoomCommand {

@@ -84,8 +84,10 @@ public class RoomManager implements DisposableBean {
 	}
 
 	/**
-	 * Matchmaking. In order of preference: the room holding this player's seat after a disconnect; a running match
-	 * with a bot in the wanted role (drop-in); a lobby with space; a new room.
+	 * Matchmaking. In order of preference: the room holding this player's seat after a disconnect; a lobby that has
+	 * not started and has room for this role; otherwise a new room. Matches already under way are never joined, and
+	 * a lobby whose monster is already claimed is skipped by the next player who wants the monster, so nobody waits
+	 * out a match in a role they did not ask for. Rooms are independent: matches run side by side.
 	 * Synchronized so two players cannot both be counted into the last free slot.
 	 */
 	public synchronized String queue(ClientConnection connection, RolePreference rolePref) {
@@ -94,11 +96,8 @@ public class RoomManager implements DisposableBean {
 				.filter(room -> room.status().reservedPlayerIds().contains(playerId))
 				.findFirst()
 				.or(() -> openRooms()
-						.filter(room -> room.status().phase() == GameRoom.Phase.PLAYING)
-						.filter(room -> botSeatFor(room.status(), rolePref))
-						.max(Comparator.comparingInt(GameRoom::playerCount)))
-				.or(() -> openRooms()
 						.filter(room -> room.status().phase() == GameRoom.Phase.LOBBY)
+						.filter(room -> rolePref != RolePreference.MONSTER || !room.status().monsterWanted())
 						.max(Comparator.comparingInt(GameRoom::playerCount)));
 		String roomId = target.map(GameRoom::id).orElseGet(RoomManager::newRoomId);
 		join(connection, roomId, rolePref);
@@ -137,14 +136,6 @@ public class RoomManager implements DisposableBean {
 		return rooms.values().stream()
 				.filter(room -> room.id().startsWith(MATCHMADE_ROOM_PREFIX))
 				.filter(room -> room.playerCount() + room.pendingJoins() < GameRoom.CAPACITY);
-	}
-
-	private static boolean botSeatFor(GameRoom.Status status, RolePreference rolePref) {
-		return switch (rolePref) {
-			case MONSTER -> status.botMonster();
-			case SURVIVOR -> status.botSurvivor();
-			case ANY -> status.botMonster() || status.botSurvivor();
-		};
 	}
 
 	private static String newRoomId() {

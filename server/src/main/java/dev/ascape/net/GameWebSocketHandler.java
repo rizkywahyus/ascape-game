@@ -151,7 +151,8 @@ public class GameWebSocketHandler extends TextWebSocketHandler {
 		connection.shutdown();
 		GameRoom room = connection.room();
 		if (room != null) {
-			room.submitLeave(connection);
+			room.submitDisconnect(connection);
+			connection.setRoom(null);
 		}
 		log.debug("Disconnected {} ({})", session.getId(), status);
 	}
