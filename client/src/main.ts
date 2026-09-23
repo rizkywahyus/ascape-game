@@ -177,6 +177,11 @@ async function start(): Promise<void> {
   const frame = (now: number) => {
     const presses = keyboard.consumePresses()
     touch.setMode(touchModeOf(session))
+    const you = session?.game.phase === 'playing' ? session.game.latest?.you : undefined
+    touch.setCooldowns(you?.role === 'monster'
+      ? { Space: you.cooldowns.attackMs, ShiftLeft: you.cooldowns.lungeMs, KeyR: you.cooldowns.sonarMs,
+          KeyT: you.trapsLeft > 0 ? you.cooldowns.trapMs : Infinity }
+      : {})
     const lobby = session?.game.phase === 'lobby' ? session.game.lobby : null
     // Only the host gets the hold button; for everyone else the countdown is out of their hands.
     touch.setHoldState(lobby && session?.game.isHost() ? lobby.held : null)

@@ -202,6 +202,10 @@ public final class Actor {
 		return sonarTicks > 0;
 	}
 
+	public boolean lungeActive() {
+		return lungeTicks > 0;
+	}
+
 	public int bleedOutTicks() {
 		return bleedOutTicks;
 	}

@@ -10,6 +10,9 @@ interface ButtonSpec {
   readonly code: string
 }
 
+/** Remaining cooldown per key code, in milliseconds; 0 means ready. */
+export type Cooldowns = Readonly<Record<string, number>>
+
 /** First entry is the big thumb button; the rest fan out around it. */
 const BUTTONS: Record<'survivor' | 'monster', readonly ButtonSpec[]> = {
   survivor: [
@@ -65,6 +68,7 @@ export class TouchControls {
   private mode: TouchMode = 'hidden'
   private stickPointer: number | null = null
   private stickOrigin = { x: 0, y: 0 }
+  private readonly actionButtons = new Map<string, HTMLElement>()
   private readonly stickHeld = new Set<string>()
   private readonly buttonHeld = new Set<string>()
 
@@ -107,7 +111,8 @@ export class TouchControls {
     if (mode === this.mode) return
     this.releaseAll()
     this.mode = mode
-    this.buttons.replaceChildren(...(mode === 'survivor' || mode === 'monster' ? this.actionButtons(BUTTONS[mode]) : []))
+    this.actionButtons.clear()
+    this.buttons.replaceChildren(...(mode === 'survivor' || mode === 'monster' ? this.buildActionButtons(BUTTONS[mode]) : []))
     this.stickBase.parentElement!.hidden = mode === 'waiting'
     this.show()
   }
@@ -126,10 +131,25 @@ export class TouchControls {
     document.body.classList.toggle('touch-ui', this.active)
   }
 
-  private actionButtons(specs: readonly ButtonSpec[]): HTMLElement[] {
+  /** Dims a button and counts its cooldown down, so a press that "did nothing" visibly did something. */
+  setCooldowns(cooldowns: Cooldowns): void {
+    for (const [code, button] of this.actionButtons) {
+      const remaining = cooldowns[code] ?? 0
+      const label = button.dataset.label ?? ''
+      // A non-finite cooldown means "not available at all" (no traps left): dim it, but count nothing down.
+      const text = Number.isFinite(remaining) && remaining > 0 ? `${label} ${Math.ceil(remaining / 1000)}` : label
+      if (button.textContent !== text) button.textContent = text
+      button.classList.toggle('cooling', remaining > 0)
+    }
+  }
+
+  private buildActionButtons(specs: readonly ButtonSpec[]): HTMLElement[] {
+    this.actionButtons.clear()
     return specs.map((spec, index) => {
       const button = element('div', index === 0 ? 'touch-button primary' : 'touch-button')
       button.textContent = spec.label
+      button.dataset.label = spec.label
+      this.actionButtons.set(spec.code, button)
       if (index > 0) {
         const fan = specs.length > 2 ? (index - 1) / (specs.length - 2) : 0
         const angle = ((FAN_FROM_DEGREES + (FAN_TO_DEGREES - FAN_FROM_DEGREES) * fan) * Math.PI) / 180

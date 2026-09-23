@@ -20,7 +20,7 @@ const TOUCH_FEED_FIRST_ROW = 5
 
 const HELP: Record<string, string> = {
   survivor: 'WASD move · Shift sprint · hold E: repair/revive/heal · E: locker · F light · Q rock · Space skill check',
-  monster: 'WASD move · Space/click attack · hold E: take downed · E: search locker · Shift lunge · R sonar · T trap',
+  monster: 'WASD move · Space/click attack · hold E: take downed · E: search locker · Shift lunge (burst) · R sonar (sweep) · T trap',
   spectator: 'spectating · Esc menu',
 }
 
@@ -106,6 +106,8 @@ const ACTIVITY_LABELS: Record<string, string> = {
 }
 
 const REJECTED_HINT_MS = 600
+/** How far (tiles) something must be to count as "right here" for the USE prompt. */
+const INTERACT_RANGE = 1
 
 function renderMonsterStatus(grid: AsciiGrid, you: SelfState, row: number, game: ClientGame): void {
   const ability = (name: string, ms: number) => ({
@@ -114,8 +116,8 @@ function renderMonsterStatus(grid: AsciiGrid, you: SelfState, row: number, game:
   })
   const parts = [
     ability('attack', you.cooldowns.attackMs),
-    ability('lunge', you.cooldowns.lungeMs),
-    you.sonarActive ? { text: 'SONAR ACTIVE', color: '#e74c3c' } : ability('sonar', you.cooldowns.sonarMs),
+    you.lungeActive ? { text: 'LUNGING', color: '#f0a030' } : ability('lunge', you.cooldowns.lungeMs),
+    you.sonarActive ? sonarResult(game) : ability('sonar', you.cooldowns.sonarMs),
     { text: `traps ${you.trapsLeft}`, color: you.trapsLeft > 0 && you.cooldowns.trapMs === 0 ? Palette.hudOk : Palette.hud },
   ]
   let column = 1
@@ -128,8 +130,32 @@ function renderMonsterStatus(grid: AsciiGrid, you: SelfState, row: number, game:
     column = grid.drawText(column, row, bar(you.activityProgress), '#e74c3c')
   }
   if (performance.now() - game.rejectedAttackAtMs < REJECTED_HINT_MS) {
-    grid.drawText(column, row, '  ◄ recharging', '#e67e22')
+    column = grid.drawText(column, row, '  ◄ recharging', '#e67e22')
   }
+  const prompt = usePrompt(game, you)
+  if (prompt) grid.drawText(column, row, `  ${prompt}`, '#f0c040')
+}
+
+/** A sweep that finds nobody looks broken; say what it found either way. */
+function sonarResult(game: ClientGame): { text: string; color: string } {
+  const found = game.latest?.entities.filter((entity) => entity.kind === 'survivor').length ?? 0
+  return found > 0
+    ? { text: `SONAR: ${found} found`, color: '#e74c3c' }
+    : { text: `SONAR: nobody within ${GameRules.monster.sonarRadius}`, color: Palette.hud }
+}
+
+/**
+ * What the monster's USE (E) would do right here. It only works next to a downed survivor or a locker, so say
+ * when it is worth pressing instead of leaving the key looking broken.
+ */
+function usePrompt(game: ClientGame, you: SelfState): string | null {
+  if (you.activity === 'catch') return 'USE: carrying — keep still'
+  const downed = game.latest?.entities.some((entity) => entity.kind === 'survivor' && entity.health === 'downed'
+    && Math.max(Math.abs(entity.x - you.x), Math.abs(entity.y - you.y)) <= INTERACT_RANGE)
+  if (downed) return 'USE: hold still to carry off'
+  const locker = game.map?.findAll('locker')
+    .some((cell) => Math.max(Math.abs(cell.x - you.x), Math.abs(cell.y - you.y)) <= INTERACT_RANGE)
+  return locker ? 'USE: search this locker' : null
 }
 
 function renderFeed(grid: AsciiGrid, game: ClientGame, now: number, firstRow: number): void {

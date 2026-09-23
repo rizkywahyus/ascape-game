@@ -29,7 +29,9 @@ const GATE_LIGHT_RADIUS = 3
 /** The survivors' way-out marker: dim while the gate is locked, lit once it opens. */
 const GATE_LOCKED_COLOR = '#8a7a50'
 const GATE_OPEN_COLOR = '#ffffff'
-const GATE_MARKER_PANEL = 'rgba(7, 7, 10, 0.7)'
+const MARKER_PANEL = 'rgba(7, 7, 10, 0.7)'
+/** Survivors revealed by a sonar sweep. */
+const SONAR_PING_COLOR = '#e74c3c'
 /** Entities the server lets us see but that stand in darkness (teammate aura, sonar) are drawn dimmer. */
 const ENTITY_MIN_BRIGHTNESS = 0.5
 const BLINK_MS = 400
@@ -72,7 +74,7 @@ interface View {
 export class SceneRenderer {
   /** Dev aid (F4): draw bot paths and states when the server sends them. */
   showBotDebug = false
-  private gateMarker: GateMarker | null = null
+  private edgeMarkers: EdgeMarker[] = []
   /** On-screen touch controls are shown, so the HUD drops its keyboard help line. */
   touchUi = false
   private readonly hud: AsciiGrid
@@ -170,9 +172,9 @@ export class SceneRenderer {
     else if (map) this.baseFor(map)
     this.shader?.draw(this.scene)
     renderHud(this.hud, game, socket, now, !this.touchUi)
-    renderOverlays(this.hud, game, now)
+    renderOverlays(this.hud, game, now, this.touchUi)
     // Last, so the event feed cannot bury the survivors' way out.
-    this.drawGateMarker()
+    this.drawEdgeMarkers()
   }
 
   private paintWorld(game: ClientGame, map: TileMap, snapshot: SnapshotPayload, self: Positioned, now: number): void {
@@ -211,32 +213,43 @@ export class SceneRenderer {
     this.paintScreenTint(snapshot, now)
     if (snapshot.you.role === 'survivor') {
       this.labelTeammates(others, toX, toY)
-      this.gateMarker = gateMarkerFor(map, self, view, game.match?.gateOpen ?? false)
+      const gate = gateMarkerFor(map, self, view, game.match?.gateOpen ?? false)
+      if (gate) this.edgeMarkers.push(gate)
     }
+    // A sonar sweep reaches far past the screen, so ping every survivor it found.
+    else if (snapshot.you.sonarActive) this.edgeMarkers.push(...sonarMarkers(snapshot, self, view))
     if (this.showBotDebug) this.labelBots(snapshot, toX, toY)
   }
 
   /**
-   * Survivors' way out: a marker that sits on the gate when it is in view and sticks to the screen edge, pointing
-   * at it, when it is not. Dim while the gate is still locked, lit once it opens.
+   * Pointers to things worth running to (or after) that the screen is too small to show: the survivors' gate, and
+   * whoever a sonar sweep just found. Each sits on its target when it is in view and clamps to the screen edge,
+   * still pointing at it, when it is not.
    */
-  private drawGateMarker(): void {
-    const marker = this.gateMarker
-    this.gateMarker = null
-    if (!marker) return
-    const length = [...marker.text].length
-    const cell = this.hudCell(marker.sceneX, marker.sceneY)
-    // Off-screen gates clamp to the edge, so the marker always shows which way to run.
-    const column = clamp(cell.column - Math.floor(length / 2), 1, Math.max(1, this.hud.columns - length - 1))
+  private drawEdgeMarkers(): void {
+    const markers = this.edgeMarkers
+    this.edgeMarkers = []
     const lastRow = Math.max(HUD_TOP_ROWS + 1, this.hud.rows - HUD_BOTTOM_ROWS - 1)
     const feedTop = feedFirstRow(!this.touchUi)
-    const row = clamp(cell.row, HUD_TOP_ROWS + 1, lastRow)
-    // The event feed runs down the right edge; drop below it rather than print over each other.
-    const clearOfFeed = column + length > this.hud.columns / 2 && row < feedTop + FEED_MAX_ROWS
-      ? Math.min(feedTop + FEED_MAX_ROWS, lastRow)
-      : row
-    this.hud.fillCells(column, clearOfFeed, length, 1, GATE_MARKER_PANEL)
-    this.hud.drawText(column, clearOfFeed, marker.text, marker.open ? GATE_OPEN_COLOR : GATE_LOCKED_COLOR)
+    const taken: { row: number; from: number; to: number }[] = []
+    for (const marker of markers) {
+      const length = [...marker.text].length
+      const cell = this.hudCell(marker.sceneX, marker.sceneY)
+      const column = clamp(cell.column - Math.floor(length / 2), 1, Math.max(1, this.hud.columns - length - 1))
+      // The event feed runs down the right edge; start below it rather than print over each other.
+      const wanted = column + length > this.hud.columns / 2 && cell.row < feedTop + FEED_MAX_ROWS
+        ? feedTop + FEED_MAX_ROWS
+        : cell.row
+      const overlaps = (row: number) => taken.some((other) => other.row === row
+        && other.from <= column + length - 1 && column <= other.to)
+      let row = clamp(wanted, HUD_TOP_ROWS + 1, lastRow)
+      // Several pings can land on one cell (survivors huddled together); stack them instead of overprinting.
+      while (row < lastRow && overlaps(row)) row++
+      if (overlaps(row)) continue
+      taken.push({ row, from: column, to: column + length - 1 })
+      this.hud.fillCells(column, row, length, 1, MARKER_PANEL)
+      this.hud.drawText(column, row, marker.text, marker.color)
+    }
   }
 
   private baseFor(map: TileMap): HTMLCanvasElement {
@@ -519,25 +532,36 @@ function arrowFor(dx: number, dy: number): string {
   return ARROWS[((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8]
 }
 
-/** Where to draw the survivors' gate marker, in scene pixels, and how it should read. */
-interface GateMarker {
+/** A pointer drawn over the world (or clamped to the screen edge), in scene pixels. */
+interface EdgeMarker {
   readonly sceneX: number
   readonly sceneY: number
   readonly text: string
-  readonly open: boolean
+  readonly color: string
 }
 
-function gateMarkerFor(map: TileMap, self: Positioned, view: View, open: boolean): GateMarker | null {
+function marker(x: number, y: number, self: Positioned, view: View, label: string, color: string): EdgeMarker {
+  const dx = x - self.renderX
+  const dy = y - self.renderY
+  return {
+    sceneX: x * TILE_W + TILE_W / 2 - view.originX,
+    sceneY: y * TILE_H + TILE_H / 2 - view.originY,
+    text: `${arrowFor(dx, dy)} ${label} ${Math.round(Math.hypot(dx, dy))}`,
+    color,
+  }
+}
+
+function gateMarkerFor(map: TileMap, self: Positioned, view: View, open: boolean): EdgeMarker | null {
   const gate = nearestGate(map, self)
   if (!gate) return null
-  const dx = gate.x - self.renderX
-  const dy = gate.y - self.renderY
-  return {
-    sceneX: gate.x * TILE_W + TILE_W / 2 - view.originX,
-    sceneY: gate.y * TILE_H + TILE_H / 2 - view.originY,
-    text: `${arrowFor(dx, dy)} ${open ? 'GATE OPEN' : 'gate'} ${Math.round(Math.hypot(dx, dy))}`,
-    open,
-  }
+  return marker(gate.x, gate.y, self, view, open ? 'GATE OPEN' : 'gate', open ? GATE_OPEN_COLOR : GATE_LOCKED_COLOR)
+}
+
+/** While the sonar is active, every survivor it revealed gets a ping the monster can chase. */
+function sonarMarkers(snapshot: SnapshotPayload, self: Positioned, view: View): EdgeMarker[] {
+  return snapshot.entities
+    .filter((entity) => entity.kind === 'survivor' && entity.id !== self.id)
+    .map((entity) => marker(entity.x, entity.y, self, view, entity.name, SONAR_PING_COLOR))
 }
 
 function nearestGate(map: TileMap, from: Positioned): { x: number; y: number } | null {

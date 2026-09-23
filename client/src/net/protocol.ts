@@ -105,6 +105,8 @@ export interface SelfState {
   cooldowns: { attackMs: number; lungeMs: number; sonarMs: number; trapMs: number }
   trapsLeft: number
   sonarActive: boolean
+  /** The lunge is running: the monster moves at lungeSpeed for a moment. */
+  lungeActive: boolean
   skillCheck: { startsInMs: number; windowMs: number } | null
   spectating: boolean
 }

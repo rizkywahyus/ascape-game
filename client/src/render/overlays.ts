@@ -15,6 +15,8 @@ const SKILL_BAR_WIDTH = 24
 /** The briefing sits under the top bar for the first seconds of a match, then gets out of the way. */
 const MISSION_MS = 10_000
 const MISSION_TOP_ROW = 2
+/** On touch the menu, zoom and hold buttons sit under the top bar, so the briefing starts below them. */
+const MISSION_TOP_ROW_TOUCH = 6
 /** Free hosting sleeps the server when idle; past this wait, say so instead of looking stuck. */
 const SLOW_CONNECT_HINT_MS = 5_000
 
@@ -24,7 +26,7 @@ interface Line {
 }
 
 /** Centred panels drawn on the grid: lobby, match result, skill check, connecting. */
-export function renderOverlays(grid: AsciiGrid, game: ClientGame, now: number): void {
+export function renderOverlays(grid: AsciiGrid, game: ClientGame, now: number, touchUi: boolean): void {
   switch (game.phase) {
     case 'connecting':
       box(grid, 'connecting', now - game.createdAtMs < SLOW_CONNECT_HINT_MS
@@ -38,14 +40,14 @@ export function renderOverlays(grid: AsciiGrid, game: ClientGame, now: number): 
       renderResult(grid, game, now)
       break
     case 'playing':
-      renderMission(grid, game, now)
+      renderMission(grid, game, now, touchUi)
       if (game.latest?.you.skillCheck && !game.latest.you.spectating) renderSkillCheck(grid, game.latest.you, now, game)
       break
   }
 }
 
 /** What this player is here to do, in their own words, while the match settles in. */
-function renderMission(grid: AsciiGrid, game: ClientGame, now: number): void {
+function renderMission(grid: AsciiGrid, game: ClientGame, now: number, touchUi: boolean): void {
   const match = game.match
   const you = game.latest?.you
   if (!match || !you || you.spectating || now - game.matchStartedAtMs > MISSION_MS) return
@@ -55,13 +57,15 @@ function renderMission(grid: AsciiGrid, game: ClientGame, now: number): void {
         { text: 'hunt the survivors — two hits down one', color: TEXT },
         { text: 'hold E on a downed survivor to carry it off', color: TEXT },
         { text: 'stop them before they repair the generators and escape', color: DIM },
+        { text: 'LUNGE closes a gap · SONAR sweeps nearby · TRAP holds one still', color: DIM },
       ]
     : [
         { text: `repair ${match.generatorsNeeded} of the ${generators} generators — hold E at one`, color: TEXT },
         { text: 'then escape through the gate on the east side', color: TEXT },
         { text: 'the marker at the screen edge points the way', color: DIM },
+        { text: 'LIGHT helps you see but gives you away · ROCK makes a noise elsewhere', color: DIM },
       ]
-  box(grid, 'your mission', lines, MISSION_TOP_ROW)
+  box(grid, 'your mission', lines, touchUi ? MISSION_TOP_ROW_TOUCH : MISSION_TOP_ROW)
 }
 
 function renderLobby(grid: AsciiGrid, game: ClientGame, now: number): void {
