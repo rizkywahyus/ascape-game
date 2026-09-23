@@ -90,6 +90,8 @@ public final class Actor {
 	int attackCooldownTicks;
 	int attackSlowTicks;
 	int lungeTicks;
+	/** 0..1 while a monster is carrying this survivor off; the victim's own progress bar. */
+	double takenProgress;
 	int lungeCooldownTicks;
 	int sonarTicks;
 	int sonarCooldownTicks;
@@ -204,6 +206,10 @@ public final class Actor {
 
 	public boolean lungeActive() {
 		return lungeTicks > 0;
+	}
+
+	public double takenProgress() {
+		return takenProgress;
 	}
 
 	public int bleedOutTicks() {

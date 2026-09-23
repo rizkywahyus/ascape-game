@@ -81,6 +81,11 @@ function renderBottomBar(grid: AsciiGrid, game: ClientGame, you: SelfState, keyb
 }
 
 function renderSurvivorStatus(grid: AsciiGrid, you: SelfState, row: number): void {
+  if (you.takenProgress > 0) {
+    const column = grid.drawText(1, row, 'TAKEN — the monster is carrying you off ', '#ff5a4a')
+    grid.drawText(column, row, `${bar(you.takenProgress)} ${Math.round(you.takenProgress * 100)}%`, '#ff5a4a')
+    return
+  }
   if (you.health === 'downed') {
     grid.drawText(1, row, `DOWN — bleeding out ${Math.ceil(you.bleedOutMs / 1000)}s · wait for a teammate`, '#e74c3c')
     return

@@ -451,6 +451,7 @@ public final class Match {
 	private void catchSurvivor(Actor monster, Actor victim) {
 		monster.stats.catches++;
 		monster.catchProgress = 0;
+		victim.takenProgress = 0;
 		victim.health = Health.CAUGHT;
 		events.add(new MatchEvent.Caught(victim.id, monster.id));
 	}
@@ -463,11 +464,14 @@ public final class Match {
 			monster.catchProgress = 0;
 			monster.activity = Activity.NONE;
 			monster.activityProgress = 0;
+			actors.forEach(actor -> actor.takenProgress = 0);
 			return;
 		}
 		monster.catchProgress += 1.0 / rules.ticks(rules.monster().catchSeconds());
 		monster.activity = Activity.CATCH;
 		monster.activityProgress = Math.min(monster.catchProgress, 1);
+		// The victim sees the same progress, so being carried off is not a silent death.
+		downed.get().takenProgress = monster.activityProgress;
 		if (monster.catchProgress >= 1) {
 			catchSurvivor(monster, downed.get());
 			monster.activity = Activity.NONE;

@@ -347,6 +347,11 @@ body.crt::after {
   font-weight: 700;
 }
 
+/* `display: grid` below would otherwise defeat the hidden attribute (the hold button outside the lobby). */
+.touch-button[hidden] {
+  display: none;
+}
+
 .touch-button.cooling {
   opacity: 0.4;
 }

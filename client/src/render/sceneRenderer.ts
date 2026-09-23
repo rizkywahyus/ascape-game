@@ -32,6 +32,9 @@ const GATE_OPEN_COLOR = '#ffffff'
 const MARKER_PANEL = 'rgba(7, 7, 10, 0.7)'
 /** Survivors revealed by a sonar sweep. */
 const SONAR_PING_COLOR = '#e74c3c'
+/** How hard the screen shakes and reddens while a monster hauls this survivor away. */
+const TAKEN_SHAKE_MS = 120
+const TAKEN_TINT_ALPHA = 0.5
 /** Entities the server lets us see but that stand in darkness (teammate aura, sonar) are drawn dimmer. */
 const ENTITY_MIN_BRIGHTNESS = 0.5
 const BLINK_MS = 400
@@ -210,6 +213,8 @@ export class SceneRenderer {
     }
     this.paintSounds(snapshot, self, toX, toY)
     this.paintEffects(self, toX, toY, now)
+    // Being carried off shakes the picture, so it never happens quietly.
+    if (snapshot.you.takenProgress > 0) this.effects.shakeUntilMs = Math.max(this.effects.shakeUntilMs, now + TAKEN_SHAKE_MS)
     this.paintScreenTint(snapshot, now)
     if (snapshot.you.role === 'survivor') {
       this.labelTeammates(others, toX, toY)
@@ -450,6 +455,16 @@ export class SceneRenderer {
       context.fillStyle = this.effects.flashColor
       context.fillRect(0, 0, width, height)
       context.globalAlpha = 1
+    }
+    const taken = snapshot.you.takenProgress
+    if (taken > 0) {
+      // Closes in from the edges as the monster finishes hauling this survivor away.
+      const gradient = context.createRadialGradient(width / 2, height / 2, Math.min(width, height) * (0.45 - taken * 0.35),
+        width / 2, height / 2, Math.max(width, height) * 0.7)
+      gradient.addColorStop(0, 'rgba(120, 0, 0, 0)')
+      gradient.addColorStop(1, `rgba(190, 0, 0, ${(0.35 + 0.65 * taken) * TAKEN_TINT_ALPHA})`)
+      context.fillStyle = gradient
+      context.fillRect(0, 0, width, height)
     }
     const terror = snapshot.you.terror
     if (terror > 0 && snapshot.you.role === 'survivor') {

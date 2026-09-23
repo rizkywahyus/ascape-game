@@ -24,6 +24,16 @@ const GAUGE_EMPTY: Rgb = [30, 34, 22]
 const GAUGE_FULL: Rgb = [110, 240, 140]
 const LAMP_IDLE: Rgb = [255, 190, 60]
 const LAMP_DONE: Rgb = [120, 255, 150]
+const SMOKE: Rgb = [90, 86, 78]
+/** Generator size in scene pixels (one per character cell): three tiles wide, reaching above its own tile. */
+const GENERATOR_WIDTH = TILE_W * 3 - 4
+const GENERATOR_HEIGHT = 22
+const EXHAUST_HEIGHT = 4
+const PLINTH_HEIGHT = 2
+const WHEEL_RADIUS = 7
+const WHEEL_SPOKES = 6
+const WHEEL_PERIOD_MS = 900
+const SMOKE_PERIOD_MS = 1400
 const GATE_BAR: Rgb = [150, 150, 160]
 const GATE_GAP: Rgb = [18, 18, 22]
 
@@ -145,31 +155,88 @@ export function paintGenerators(
 ): void {
   for (const generator of generators) {
     const left = toSceneX((generator.x - 1) * TILE_W + 2)
-    const top = toSceneY(generator.y * TILE_H + 1)
-    const width = TILE_W * 3 - 4
-    const height = TILE_H - 2
-    // Casing with a vertical gradient (lit top, dark base) so it reads as a solid machine.
-    const casing = context.createLinearGradient(0, top, 0, top + height)
-    casing.addColorStop(0, css(shadeRgb(GENERATOR_BODY, 1.5)))
-    casing.addColorStop(1, css(shadeRgb(GENERATOR_BODY, 0.55)))
-    fill(context, left, top, width, height, GENERATOR_EDGE)
-    context.fillStyle = casing
-    context.fillRect(left + 1, top + 1, width - 2, height - 2)
-    // Cooling fins.
-    for (let fin = left + 3; fin < left + 12; fin += 2) fill(context, fin, top + 2, 1, height - 4, GENERATOR_EDGE)
-    const gaugeLeft = left + 15
-    const gaugeWidth = width - 30
+    // The machine stands on its tile and reaches up into the one above, so it reads as a thing, not a stripe.
+    const base = toSceneY(generator.y * TILE_H + TILE_H - 1)
+    const top = base - GENERATOR_HEIGHT
     const progress = generator.done ? 1 : generator.progress ?? 0
-    fill(context, gaugeLeft, top + 3, gaugeWidth, 2, GAUGE_EMPTY)
-    fill(context, gaugeLeft, top + 3, Math.round(gaugeWidth * progress), 2, GAUGE_FULL)
-    const blink = !generator.done && Math.floor(nowMs / 500) % 2 === 0
-    const lamp = generator.done ? LAMP_DONE : blink ? LAMP_IDLE : scale(LAMP_IDLE, 0.45)
-    fill(context, left + width - 10, top + 2, 3, 2, lamp)
-    fill(context, left + width - 5, top + 2, 3, 2, lamp)
+    paintGenerator(context, left, top, base, progress, generator.done, nowMs)
   }
 }
 
-/** Once the gate opens its bars are gone and the exit flickers white. */
+/** One generator: fins and casing on the left, flywheel on the right, exhaust on top, gauge and lamps in front. */
+function paintGenerator(context: CanvasRenderingContext2D, left: number, top: number, base: number, progress: number,
+  done: boolean, nowMs: number): void {
+  const bodyWidth = GENERATOR_WIDTH - WHEEL_RADIUS * 2 - 2
+  const bodyTop = top + EXHAUST_HEIGHT
+  const bodyHeight = base - PLINTH_HEIGHT - bodyTop
+  const wheelX = left + bodyWidth + WHEEL_RADIUS
+  const wheelY = base - PLINTH_HEIGHT - WHEEL_RADIUS - 1
+
+  // Exhaust pipe, with smoke once the generator runs.
+  fill(context, left + 8, top, 4, EXHAUST_HEIGHT + 2, GENERATOR_EDGE)
+  fill(context, left + 9, top, 2, EXHAUST_HEIGHT + 1, shadeRgb(GENERATOR_BODY, 0.8))
+  if (done) paintSmoke(context, left + 10, top, nowMs)
+
+  // Casing.
+  const casing = context.createLinearGradient(0, bodyTop, 0, bodyTop + bodyHeight)
+  casing.addColorStop(0, css(shadeRgb(GENERATOR_BODY, 1.5)))
+  casing.addColorStop(1, css(shadeRgb(GENERATOR_BODY, 0.5)))
+  fill(context, left, bodyTop, bodyWidth, bodyHeight, GENERATOR_EDGE)
+  context.fillStyle = casing
+  context.fillRect(left + 1, bodyTop + 1, bodyWidth - 2, bodyHeight - 2)
+
+  // Cooling fins along the left half.
+  for (let fin = left + 3; fin < left + bodyWidth / 2; fin += 3) {
+    fill(context, fin, bodyTop + 3, 1, bodyHeight - 6, GENERATOR_EDGE)
+  }
+
+  // Gauge and lamps on the right half of the casing.
+  const gaugeLeft = left + Math.round(bodyWidth / 2) + 2
+  const gaugeWidth = bodyWidth - (gaugeLeft - left) - 4
+  fill(context, gaugeLeft, bodyTop + 4, gaugeWidth, 3, GAUGE_EMPTY)
+  fill(context, gaugeLeft, bodyTop + 4, Math.round(gaugeWidth * progress), 3, GAUGE_FULL)
+  const blink = !done && Math.floor(nowMs / 500) % 2 === 0
+  const lamp = done ? LAMP_DONE : blink ? LAMP_IDLE : scale(LAMP_IDLE, 0.45)
+  fill(context, gaugeLeft, bodyTop + 9, 3, 2, lamp)
+  fill(context, gaugeLeft + 5, bodyTop + 9, 3, 2, lamp)
+
+  // Flywheel: spokes turn while the generator runs.
+  const spin = done ? (nowMs / WHEEL_PERIOD_MS) * Math.PI * 2 : Math.PI / 8
+  context.strokeStyle = css(shadeRgb(GENERATOR_BODY, 1.2))
+  context.lineWidth = 1
+  context.beginPath()
+  context.arc(wheelX, wheelY, WHEEL_RADIUS, 0, Math.PI * 2)
+  context.stroke()
+  context.strokeStyle = css(GENERATOR_EDGE)
+  context.beginPath()
+  context.arc(wheelX, wheelY, WHEEL_RADIUS - 2, 0, Math.PI * 2)
+  context.stroke()
+  context.strokeStyle = css(shadeRgb(GENERATOR_BODY, 1.4))
+  for (let spoke = 0; spoke < WHEEL_SPOKES; spoke++) {
+    const angle = spin + (spoke * Math.PI * 2) / WHEEL_SPOKES
+    context.beginPath()
+    context.moveTo(wheelX, wheelY)
+    context.lineTo(wheelX + Math.cos(angle) * (WHEEL_RADIUS - 1), wheelY + Math.sin(angle) * (WHEEL_RADIUS - 1))
+    context.stroke()
+  }
+  fill(context, wheelX - 1, wheelY - 1, 2, 2, done ? LAMP_DONE : GENERATOR_EDGE)
+
+  // Plinth and feet.
+  fill(context, left - 1, base - PLINTH_HEIGHT, GENERATOR_WIDTH + 2, PLINTH_HEIGHT, GENERATOR_EDGE)
+  fill(context, left + 1, base - 1, 4, 1, shadeRgb(GENERATOR_BODY, 0.7))
+  fill(context, left + GENERATOR_WIDTH - 5, base - 1, 4, 1, shadeRgb(GENERATOR_BODY, 0.7))
+}
+
+/** Three puffs drifting up from the exhaust, so a running generator reads at a glance. */
+function paintSmoke(context: CanvasRenderingContext2D, x: number, top: number, nowMs: number): void {
+  for (let puff = 0; puff < 3; puff++) {
+    const phase = ((nowMs / SMOKE_PERIOD_MS + puff / 3) % 1)
+    const size = 1 + Math.round(phase * 2)
+    fill(context, Math.round(x + Math.sin(phase * Math.PI * 2) * 2 - size / 2), Math.round(top - 1 - phase * 6),
+      size, size, scale(SMOKE, 1 - phase))
+  }
+}
+
 export function paintOpenGate(
   context: CanvasRenderingContext2D,
   gates: readonly { x: number; y: number }[],

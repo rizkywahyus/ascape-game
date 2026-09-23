@@ -113,7 +113,7 @@ final class SnapshotBuilder {
 				self.rocks(), self.activity().name().toLowerCase(Locale.ROOT), round(self.activityProgress()),
 				round(match.terror(self)), self.bleedOutTicks() * msPerTick, cooldowns,
 				self.role() == Role.MONSTER ? (int) (rules.monster().maxTraps() - ownTraps) : 0, self.sonarActive(),
-				self.lungeActive(), skillCheck, spectating);
+				self.lungeActive(), round(self.takenProgress()), skillCheck, spectating);
 	}
 
 	private static double round(double value) {

@@ -61,7 +61,8 @@ public final class ServerMessages {
 	public record SelfState(int id, int x, int y, double moveProgress, String role, String health, boolean hidden,
 			boolean canMove, double moveSpeed, double sprintSpeed, double stamina, boolean flashlight, int rocks,
 			String activity, double activityProgress, double terror, long bleedOutMs, Cooldowns cooldowns,
-			int trapsLeft, boolean sonarActive, boolean lungeActive, SkillCheckView skillCheck, boolean spectating) {
+			int trapsLeft, boolean sonarActive, boolean lungeActive, double takenProgress, SkillCheckView skillCheck,
+			boolean spectating) {
 	}
 
 	public record EntityView(int id, String kind, int x, int y, String glyph, String color, String name,

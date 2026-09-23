@@ -179,8 +179,16 @@ class MatchTest {
 
 		tick(Map.of(monster, input(0, 0, true)));
 		assertThat(survivor.health()).as("catching takes a moment").isEqualTo(Health.DOWNED);
+		assertThat(survivor.takenProgress()).as("the victim sees it coming").isGreaterThan(0);
+
+		// Letting go clears the victim's progress, so the bar cannot linger on their screen.
+		tick(Map.of(monster, input(0, 0, false)));
+		assertThat(survivor.takenProgress()).isEqualTo(0);
+
+		tick(Map.of(monster, input(0, 0, true)));
 		tickFor(RULES.monster().catchSeconds(), Map.of(monster, input(0, 0, true)));
 		assertThat(survivor.health()).isEqualTo(Health.CAUGHT);
+		assertThat(survivor.takenProgress()).isEqualTo(0);
 		assertThat(monster.stats().catches()).isEqualTo(1);
 	}
 

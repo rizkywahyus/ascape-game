@@ -107,6 +107,8 @@ export interface SelfState {
   sonarActive: boolean
   /** The lunge is running: the monster moves at lungeSpeed for a moment. */
   lungeActive: boolean
+  /** 0..1 while a monster is carrying this survivor off. */
+  takenProgress: number
   skillCheck: { startsInMs: number; windowMs: number } | null
   spectating: boolean
 }
