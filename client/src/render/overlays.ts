@@ -12,6 +12,9 @@ const DIM = '#7a7a86'
 const SKILL_WINDOW_COLOR = '#58d68d'
 const SKILL_WAIT_COLOR = '#f0c040'
 const SKILL_BAR_WIDTH = 24
+/** The briefing sits under the top bar for the first seconds of a match, then gets out of the way. */
+const MISSION_MS = 10_000
+const MISSION_TOP_ROW = 2
 /** Free hosting sleeps the server when idle; past this wait, say so instead of looking stuck. */
 const SLOW_CONNECT_HINT_MS = 5_000
 
@@ -35,9 +38,30 @@ export function renderOverlays(grid: AsciiGrid, game: ClientGame, now: number): 
       renderResult(grid, game, now)
       break
     case 'playing':
+      renderMission(grid, game, now)
       if (game.latest?.you.skillCheck && !game.latest.you.spectating) renderSkillCheck(grid, game.latest.you, now, game)
       break
   }
+}
+
+/** What this player is here to do, in their own words, while the match settles in. */
+function renderMission(grid: AsciiGrid, game: ClientGame, now: number): void {
+  const match = game.match
+  const you = game.latest?.you
+  if (!match || !you || you.spectating || now - game.matchStartedAtMs > MISSION_MS) return
+  const generators = game.latest?.generators.length ?? match.generatorsNeeded
+  const lines: Line[] = you.role === 'monster'
+    ? [
+        { text: 'hunt the survivors — two hits down one', color: TEXT },
+        { text: 'hold E on a downed survivor to carry it off', color: TEXT },
+        { text: 'stop them before they repair the generators and escape', color: DIM },
+      ]
+    : [
+        { text: `repair ${match.generatorsNeeded} of the ${generators} generators — hold E at one`, color: TEXT },
+        { text: 'then escape through the gate on the east side', color: TEXT },
+        { text: 'the marker at the screen edge points the way', color: DIM },
+      ]
+  box(grid, 'your mission', lines, MISSION_TOP_ROW)
 }
 
 function renderLobby(grid: AsciiGrid, game: ClientGame, now: number): void {

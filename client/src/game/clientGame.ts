@@ -79,6 +79,8 @@ export class ClientGame {
   readonly perf = new PerfStats()
   /** Local clock (performance.now) when `match.timeLeftMs` was received. */
   matchReceivedAtMs = 0
+  /** When this match began; unlike matchReceivedAtMs it survives the repeated match updates. */
+  matchStartedAtMs = 0
   lobbyReceivedAtMs = 0
   resultReceivedAtMs = 0
 
@@ -263,6 +265,7 @@ export class ClientGame {
     if (this.phase !== 'playing') {
       this.resetMatchState()
       this.phase = 'playing'
+      this.matchStartedAtMs = performance.now()
     }
     this.match = match
     this.matchReceivedAtMs = performance.now()

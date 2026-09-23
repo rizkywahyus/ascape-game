@@ -10,6 +10,8 @@ export const HUD_TOP_ROWS = 1
 export const HUD_BOTTOM_ROWS = 2
 
 const BAR_WIDTH = 10
+/** Matches ClientGame's feed limit: the rows the feed may occupy on the right. */
+export const FEED_MAX_ROWS = 6
 const FEED_VISIBLE_MS = 8_000
 const FEED_FADE_MS = 1_500
 const PANEL = 'rgba(7, 7, 10, 0.8)'
@@ -30,7 +32,12 @@ export function renderHud(grid: AsciiGrid, game: ClientGame, socket: GameSocket,
   renderTopBar(grid, game, socket, now)
   if (game.phase !== 'playing' || !game.latest) return
   renderBottomBar(grid, game, game.latest.you, keyboardHelp)
-  renderFeed(grid, game, now, keyboardHelp ? HUD_TOP_ROWS + 1 : TOUCH_FEED_FIRST_ROW)
+  renderFeed(grid, game, now, feedFirstRow(keyboardHelp))
+}
+
+/** Where the event feed starts; the gate marker steps around it. */
+export function feedFirstRow(keyboardHelp: boolean): number {
+  return keyboardHelp ? HUD_TOP_ROWS + 1 : TOUCH_FEED_FIRST_ROW
 }
 
 function renderTopBar(grid: AsciiGrid, game: ClientGame, socket: GameSocket, now: number): void {

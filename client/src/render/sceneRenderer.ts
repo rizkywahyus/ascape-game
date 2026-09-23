@@ -9,7 +9,7 @@ import type { AsciiGrid } from './asciiGrid'
 import { viewportOrigin } from './camera'
 import { parseHex } from './color'
 import type { Effects } from './effects'
-import { renderHud } from './hud'
+import { FEED_MAX_ROWS, feedFirstRow, HUD_BOTTOM_ROWS, HUD_TOP_ROWS, renderHud } from './hud'
 import { renderOverlays } from './overlays'
 import { AttractScene, type SceneArea, type SceneLabel } from './attract/attractScene'
 import { AsciiShader } from './world/asciiShader'
@@ -26,6 +26,10 @@ const AMBIENT_REMEMBERED = 0.13
 const LIGHT_BOOST = 1.25
 const GENERATOR_LIGHT_RADIUS = 3
 const GATE_LIGHT_RADIUS = 3
+/** The survivors' way-out marker: dim while the gate is locked, lit once it opens. */
+const GATE_LOCKED_COLOR = '#8a7a50'
+const GATE_OPEN_COLOR = '#ffffff'
+const GATE_MARKER_PANEL = 'rgba(7, 7, 10, 0.7)'
 /** Entities the server lets us see but that stand in darkness (teammate aura, sonar) are drawn dimmer. */
 const ENTITY_MIN_BRIGHTNESS = 0.5
 const BLINK_MS = 400
@@ -68,6 +72,7 @@ interface View {
 export class SceneRenderer {
   /** Dev aid (F4): draw bot paths and states when the server sends them. */
   showBotDebug = false
+  private gateMarker: GateMarker | null = null
   /** On-screen touch controls are shown, so the HUD drops its keyboard help line. */
   touchUi = false
   private readonly hud: AsciiGrid
@@ -166,6 +171,8 @@ export class SceneRenderer {
     this.shader?.draw(this.scene)
     renderHud(this.hud, game, socket, now, !this.touchUi)
     renderOverlays(this.hud, game, now)
+    // Last, so the event feed cannot bury the survivors' way out.
+    this.drawGateMarker()
   }
 
   private paintWorld(game: ClientGame, map: TileMap, snapshot: SnapshotPayload, self: Positioned, now: number): void {
@@ -202,8 +209,34 @@ export class SceneRenderer {
     this.paintSounds(snapshot, self, toX, toY)
     this.paintEffects(self, toX, toY, now)
     this.paintScreenTint(snapshot, now)
-    if (snapshot.you.role === 'survivor') this.labelTeammates(others, toX, toY)
+    if (snapshot.you.role === 'survivor') {
+      this.labelTeammates(others, toX, toY)
+      this.gateMarker = gateMarkerFor(map, self, view, game.match?.gateOpen ?? false)
+    }
     if (this.showBotDebug) this.labelBots(snapshot, toX, toY)
+  }
+
+  /**
+   * Survivors' way out: a marker that sits on the gate when it is in view and sticks to the screen edge, pointing
+   * at it, when it is not. Dim while the gate is still locked, lit once it opens.
+   */
+  private drawGateMarker(): void {
+    const marker = this.gateMarker
+    this.gateMarker = null
+    if (!marker) return
+    const length = [...marker.text].length
+    const cell = this.hudCell(marker.sceneX, marker.sceneY)
+    // Off-screen gates clamp to the edge, so the marker always shows which way to run.
+    const column = clamp(cell.column - Math.floor(length / 2), 1, Math.max(1, this.hud.columns - length - 1))
+    const lastRow = Math.max(HUD_TOP_ROWS + 1, this.hud.rows - HUD_BOTTOM_ROWS - 1)
+    const feedTop = feedFirstRow(!this.touchUi)
+    const row = clamp(cell.row, HUD_TOP_ROWS + 1, lastRow)
+    // The event feed runs down the right edge; drop below it rather than print over each other.
+    const clearOfFeed = column + length > this.hud.columns / 2 && row < feedTop + FEED_MAX_ROWS
+      ? Math.min(feedTop + FEED_MAX_ROWS, lastRow)
+      : row
+    this.hud.fillCells(column, clearOfFeed, length, 1, GATE_MARKER_PANEL)
+    this.hud.drawText(column, clearOfFeed, marker.text, marker.open ? GATE_OPEN_COLOR : GATE_LOCKED_COLOR)
   }
 
   private baseFor(map: TileMap): HTMLCanvasElement {
@@ -477,4 +510,49 @@ function createShader(canvas: HTMLCanvasElement): AsciiShader | null {
     console.error('ASCII shader unavailable; the world will not render', error)
     return null
   }
+}
+
+/** Arrows for the eight directions, counter-clockwise from "right"; screen y grows downwards. */
+const ARROWS = ['→', '↘', '↓', '↙', '←', '↖', '↑', '↗'] as const
+
+function arrowFor(dx: number, dy: number): string {
+  return ARROWS[((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8]
+}
+
+/** Where to draw the survivors' gate marker, in scene pixels, and how it should read. */
+interface GateMarker {
+  readonly sceneX: number
+  readonly sceneY: number
+  readonly text: string
+  readonly open: boolean
+}
+
+function gateMarkerFor(map: TileMap, self: Positioned, view: View, open: boolean): GateMarker | null {
+  const gate = nearestGate(map, self)
+  if (!gate) return null
+  const dx = gate.x - self.renderX
+  const dy = gate.y - self.renderY
+  return {
+    sceneX: gate.x * TILE_W + TILE_W / 2 - view.originX,
+    sceneY: gate.y * TILE_H + TILE_H / 2 - view.originY,
+    text: `${arrowFor(dx, dy)} ${open ? 'GATE OPEN' : 'gate'} ${Math.round(Math.hypot(dx, dy))}`,
+    open,
+  }
+}
+
+function nearestGate(map: TileMap, from: Positioned): { x: number; y: number } | null {
+  let nearest: { x: number; y: number } | null = null
+  let best = Infinity
+  for (const gate of map.findAll('gate')) {
+    const distance = Math.hypot(gate.x - from.renderX, gate.y - from.renderY)
+    if (distance < best) {
+      best = distance
+      nearest = gate
+    }
+  }
+  return nearest
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.min(high, Math.max(low, value))
 }

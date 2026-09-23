@@ -187,6 +187,9 @@ URL to Supabase Auth → URL configuration (site URL and redirect list).
 
 Esc menu · `-`/`=` zoom · M sound · F2 CRT · F3 netcode overlay · F4 bot debug view (if enabled on the server).
 
+**Objectives** are shown in game: each match opens with a short briefing for your role, and survivors get a marker
+that points to the escape gate (dim while it is locked, lit once the generators are done).
+
 **Playing with friends**: the lobby shows a room code; friends type it on the menu to join. The host (whoever has
 been in the room longest) can press `H` to hold the countdown while they gather, and `H` again to start it — the
 match begins when it runs out. Others may still join a held lobby, from the code or from matchmaking.
