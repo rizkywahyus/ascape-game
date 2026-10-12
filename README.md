@@ -176,6 +176,28 @@ directory" on: the build reads `../shared`). Env vars: `VITE_SERVER_URL` = the R
 `https://ascape-server.onrender.com`), `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`. Then add the Vercel
 URL to Supabase Auth → URL configuration (site URL and redirect list).
 
+### VPS
+
+On a VPS that already runs a reverse proxy in Docker, [`docker-compose.vps.yml`](docker-compose.vps.yml) runs both
+containers with no published ports, memory/CPU limits and bounded logs. The client joins the proxy's network as
+`ascape-client` and forwards `/ws` and `/api` to the server, which stays on a private network.
+
+1. On the server, create `/opt/ascape/.env` (`chmod 600`): `ALLOWED_ORIGINS=https://<your-domain>`,
+   `PROXY_NETWORK=<the proxy's Docker network>`, and either the Supabase/DB variables above or
+   `AUTH_ALLOW_UNAUTHENTICATED=true` for guest play with stats kept in memory.
+2. `scripts/deploy-vps.sh <ssh-host>` sends the code and builds there; run it again to update.
+3. Point the proxy at `ascape-client:80` and keep `/actuator` private. With Caddy:
+
+   ```
+   your-domain {
+       encode zstd gzip
+       respond /actuator/* 404
+       reverse_proxy ascape-client:80
+   }
+   ```
+
+The client image is built without `VITE_SUPABASE_*` (`.dockerignore` keeps `.env` out), so it plays as a guest.
+
 ## Controls
 
 | | Survivor | Monster |

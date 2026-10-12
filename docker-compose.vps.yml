@@ -1,0 +1,49 @@
+# A VPS that already runs a reverse proxy in Docker (TLS ends there): see README → Deploying → VPS.
+# No ports are published. The proxy reaches the client by the name `ascape-client` on its own network; the game
+# server stays on this project's private network, behind the client's nginx.
+# Limits keep a busy or misbehaving game from starving whatever else the host runs.
+name: ascape
+
+x-logging: &bounded-logs
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *bounded-logs
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - server
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    logging: *bounded-logs
+    networks:
+      default:
+      proxy:
+        aliases:
+          - ascape-client
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?set PROXY_NETWORK in .env to the reverse proxy's Docker network}
